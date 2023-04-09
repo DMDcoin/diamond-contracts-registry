@@ -7,9 +7,9 @@ import { DiamondENSResolver } from "../typechain-types";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 
 require('chai')
-    .use(require('chai-as-promised'))
-    .use(require('chai-bn')(BigNumber))
-    .should();
+  .use(require('chai-as-promised'))
+  .use(require('chai-bn')(BigNumber))
+  .should();
 
 const mockReinsertPotAddress = "0x2000000000000000000000000000000000000001";
 
@@ -19,7 +19,7 @@ let currentRegistrationFee: BigNumber = ethers.utils.parseEther("1");
 let signers: SignerWithAddress[] = [];
 
 describe("DiamondENSResolver", function () {
-  
+
   describe("Deploy", function () {
     it("deploying", async function () {
       signers = await ethers.getSigners();
@@ -37,12 +37,9 @@ describe("DiamondENSResolver", function () {
     });
 
     it("registration should succed in the first try if funds get provided.", async function () {
-
       await deployedResolver!.setOwnName("testname1", { value: currentRegistrationFee });// .should.be.revertedWith("Amount requires to be exactly the costs");
       currentRegistrationFee = currentRegistrationFee.mul(2);
-
     });
-
 
     it("registration fee for the next match should be the expected registration fee.", async function () {
       (await deployedResolver!.getSetNameCost(signers[0].address)).should.be.equal(currentRegistrationFee);
