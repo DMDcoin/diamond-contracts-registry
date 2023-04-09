@@ -4,7 +4,7 @@
   "description": "ENS registry for Bit Diamonds",
   "main": "index.ts",
   "scripts": {
-    "test": "test"
+    "test": "npx hardhat test"
   },
   "keywords": [
     "bit-diamond",
@@ -16,5 +16,8 @@
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^2.0.2",
     "hardhat": "^2.13.0"
+  },
+  "dependencies": {
+    "chai-bn": "^0.3.1"
   }
 }
