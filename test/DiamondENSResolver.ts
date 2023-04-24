@@ -51,6 +51,20 @@ describe("DiamondENSResolver", function () {
     });
 
 
+    it("renaming is not possible, without doubling registration fee.", async function () {
+      await deployedResolver!.setOwnName("testname3", { value: currentRegistrationFee }).should.be.revertedWith("Amount requires to be exactly the costs");
+    });
+
+    it("renaming is not possible, without doubling registration fee.", async function () {
+      currentRegistrationFee = currentRegistrationFee.mul(2);
+      await deployedResolver!.setOwnName("testname3", { value: currentRegistrationFee }); // .should.be.revertedWith("Amount requires to be exactly the costs");
+      // currentRegistrationFee = currentRegistrationFee.mul(2);
+    });
+
+    
+
+
+    // it("renaming costs stop growing after reaching max price.", async function () { });
 
 
     // it("renaming costs stop growing after reaching max price.", async function () {
