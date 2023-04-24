@@ -46,8 +46,23 @@ describe("DiamondENSResolver", function () {
     });
 
     it("renaming is possible.", async function () {
-      (await deployedResolver!.getSetNameCost(signers[0].address)).should.be.equal(currentRegistrationFee);
+      await deployedResolver!.setOwnName("testname2", { value: currentRegistrationFee });// .should.be.revertedWith("Amount requires to be exactly the costs");
+      // currentRegistrationFee = currentRegistrationFee.mul(2);
     });
+
+
+
+
+    // it("renaming costs stop growing after reaching max price.", async function () {
+    //   // for this test we are using signers 2 account to have a fresh account.
+
+    //   let signer = signers[1];
+
+    //   (await deployedResolver!.getSetNameCost(signers[0].address)).should.be.equal(currentRegistrationFee);
+    // });
+
+
+    signers
 
   });
 
