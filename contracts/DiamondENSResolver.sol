@@ -74,6 +74,8 @@ contract DiamondENSResolver {
         // this could also be a hash collison. bad luck, we don't care about this case.
         require(namesReverse[nameHash] == address(0), "Name already taken");
 
+
+
         names[tx.origin] = name;
         costs[tx.origin] = cost * 2;
         namesReverse[nameHash] = tx.origin;
@@ -83,6 +85,11 @@ contract DiamondENSResolver {
         payable(reinsertPotAddress).call{value: msg.value};
     }
 
-    // function ABI(bytes32 node, uint256 contentTypes) external view returns (uint256, bytes memory) {
-    // }
+
+    /// ENS compatible function to get the address of a node
+    /// @param node The address of the node
+    function addr(bytes32 node) public view returns (address) {
+      return namesReverse[node];
+    }
+
 }
