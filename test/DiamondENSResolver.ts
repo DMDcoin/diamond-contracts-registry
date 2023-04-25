@@ -55,9 +55,9 @@ describe("DiamondENSResolver", function () {
       await deployedResolver!.setOwnName("testname3", { value: currentRegistrationFee }).should.be.revertedWith("Amount requires to be exactly the costs");
     });
 
-    it("renaming is not possible, without doubling registration fee.", async function () {
+    it("renaming is possible, without expected registration fee.", async function () {
       currentRegistrationFee = currentRegistrationFee.mul(2);
-      await deployedResolver!.setOwnName("testname3", { value: currentRegistrationFee }); // .should.be.revertedWith("Amount requires to be exactly the costs");
+      await deployedResolver!.setOwnName("testname1", { value: currentRegistrationFee }); // .should.be.revertedWith("Amount requires to be exactly the costs");
       // currentRegistrationFee = currentRegistrationFee.mul(2);
     });
 
