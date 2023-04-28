@@ -76,7 +76,29 @@ describe("DiamondENSResolver", function () {
     // });
 
 
-    signers
+    
+
+  });
+
+  async function registerName(signerIndex: number, name: string) {
+
+    let signer = signers[signerIndex];
+
+    let registrationFee = await deployedResolver!.getSetNameCost(signer.address);
+
+    await deployedResolver!.setOwnName(name, { from: await signer.getAddress(), value: registrationFee });
+  }
+
+  describe("namesReverse", function () {
+
+    it("reverse name is registered successfully", async function () {
+
+      let nameToRegister = "justAnotherName"
+      registerName(0, nameToRegister);
+      
+      // await deployedResolver!.setOwnName("testname1", { value: currentRegistrationFee });
+      // (await deployedResolver!.namesReverse(signers[0].address)).should.be.equal(nameToRegister);
+    });
 
   });
 
