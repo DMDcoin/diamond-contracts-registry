@@ -7,12 +7,20 @@ pragma solidity ^0.8.9;
 
 contract DiamondENSResolver {
 
-    // mapping between node and name.
+    /// mapping between address and the current name.
     mapping(address => bytes) public names;
+
+    /// mapping between the hash of the name and the address that owns it.abi
     mapping(bytes32 => address) public namesReverse;
+
+    /// mapping of the costs for setting the name.
     mapping(address => uint) public costs;
     
+    /// funds are sent to this reinsert pot.
     address public reinsertPotAddress;  
+
+    /// maximum costs for setting the name.
+    uint256 public maximumCosts = 256 ether;
  
     // event AddressChanged(address indexed node, uint coinType, bytes newAddress);
     event NameChanged(address indexed node, string name);
@@ -66,6 +74,11 @@ contract DiamondENSResolver {
     //     // the sent value of the change
     // }
 
+    function getAddressOfName(string calldata name) external view returns(address) {
+      bytes32 nameHash = getHashOfName(name);
+      return namesReverse[nameHash];
+    }
+
     function setOwnName(string calldata name) 
       external
       payable {
@@ -87,7 +100,11 @@ contract DiamondENSResolver {
         } 
 
         names[tx.origin] = bytes(name);
-        costs[tx.origin] = cost * 2;
+
+        if (cost < maximumCosts) {
+          costs[tx.origin] = cost * 2;
+        }
+        
         namesReverse[nameHash] = tx.origin;
 
         emit NameChanged(tx.origin, name);
