@@ -4,7 +4,8 @@
   "description": "ENS registry for Bit Diamonds",
   "main": "index.ts",
   "scripts": {
-    "test": "npx hardhat test"
+    "test": "npx hardhat test",
+    "deploy-on-mainnet": "npx hardhat run --network DMDv4 scripts/deploy.ts"
   },
   "keywords": [
     "bit-diamond",
