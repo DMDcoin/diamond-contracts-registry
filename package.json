@@ -1,5 +1,5 @@
 {
-  "name": "diamond-registry",
+  "name": "diamond-contracts-registry",
   "version": "1.0.0",
   "description": "ENS registry for Bit Diamonds",
   "main": "index.ts",
