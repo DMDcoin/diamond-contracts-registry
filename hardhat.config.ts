@@ -7,7 +7,13 @@ import { NetworkUserConfig } from "hardhat/types";
 // Ensure that we have all the environment variables we need.
 // const mnemonic: string = process.env.MNEMONIC ? process.env.MNEMONIC : utils.entropyToMnemonic(utils.randomBytes(32));
 
-const mnemonic = fs.readFileSync(".mnemonic").toString().trim();
+
+let mnemonic = 'inspire school random normal account steel strike shove close album produce cube bounce memory before';
+if (fs.existsSync(".mnemonic")) {
+  mnemonic =  fs.readFileSync(".mnemonic").toString().trim();
+}
+ 
+
 
 const chainIds = {
   hardhat: 31337,
