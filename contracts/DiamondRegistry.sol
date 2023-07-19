@@ -5,7 +5,7 @@ pragma solidity ^0.8.9;
 // import "hardhat/console.sol";
 
 
-contract DiamondENSResolver {
+contract DiamondRegistry {
 
     /// mapping between address and the current name.
     mapping(address => bytes) public names;

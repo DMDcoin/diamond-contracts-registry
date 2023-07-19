@@ -2,14 +2,14 @@ import { ethers } from "hardhat";
 
 async function main() {
  
-  const DiamondENSResolver = await ethers.getContractFactory("DiamondENSResolver");
+  const DiamondRegistry = await ethers.getContractFactory("DiamondRegistry");
   const resinsertPotAddress = "0x2000000000000000000000000000000000000001";
-  const diamondENSResolver = await DiamondENSResolver.deploy(resinsertPotAddress);
+  const DiamondRegistry = await DiamondRegistry.deploy(resinsertPotAddress);
 
-  await diamondENSResolver.deployed();
+  await DiamondRegistry.deployed();
 
   console.log(
-    `diamondENSResolver deployed to ${diamondENSResolver.address}`
+    `DiamondRegistry deployed to ${DiamondRegistry.address}`
   );
 }
 
