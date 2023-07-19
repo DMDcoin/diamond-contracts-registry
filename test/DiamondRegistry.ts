@@ -3,7 +3,7 @@ import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 import { expect } from "chai";
 import { ethers } from "hardhat";
 import { BigNumber } from "ethers";
-import { DiamondENSResolver } from "../typechain-types";
+import { DiamondRegistry } from "../typechain-types";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 
 require('chai')
@@ -13,19 +13,19 @@ require('chai')
 
 const mockReinsertPotAddress = "0x2000000000000000000000000000000000000001";
 
-let deployedResolver: DiamondENSResolver | undefined;
+let deployedResolver: DiamondRegistry | undefined;
 let currentRegistrationFee: BigNumber = ethers.utils.parseEther("1");
 
 let signers: SignerWithAddress[] = [];
 
-describe("DiamondENSResolver", function () {
+describe("DiamondRegistry", function () {
 
   describe("Deploy", function () {
     it("deploying", async function () {
       signers = await ethers.getSigners();
 
-      const ens_resolver_factory = await ethers.getContractFactory("DiamondENSResolver");
-      deployedResolver = await ens_resolver_factory.deploy(mockReinsertPotAddress) as DiamondENSResolver;
+      const ens_resolver_factory = await ethers.getContractFactory("DiamondRegistry");
+      deployedResolver = await ens_resolver_factory.deploy(mockReinsertPotAddress) as DiamondRegistry;
     });
   });
 
@@ -63,17 +63,16 @@ describe("DiamondENSResolver", function () {
 
     
 
+    it("renaming costs stop growing after reaching max price.", async function () {
+      // for this test we are using signers 2 account to have a fresh account.
 
-    // it("renaming costs stop growing after reaching max price.", async function () { });
+      let signer = signers[1];
+
+      (await deployedResolver!.getSetNameCost(signers[0].address)).should.be.equal(currentRegistrationFee);
 
 
-    // it("renaming costs stop growing after reaching max price.", async function () {
-    //   // for this test we are using signers 2 account to have a fresh account.
 
-    //   let signer = signers[1];
-
-    //   (await deployedResolver!.getSetNameCost(signers[0].address)).should.be.equal(currentRegistrationFee);
-    // });
+    });
 
 
     
