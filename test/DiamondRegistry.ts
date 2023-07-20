@@ -69,20 +69,20 @@ describe("DiamondRegistry", function () {
       let signer = signers[1];
       deployedResolver!.connect(signer);
       let costsWasAtMaxCounter = 0;
-      
+
       for (let i = 0; i < 12; i++) {
 
         let costs = await deployedResolver!.getSetNameCost(signer.address);
-        let costsBN = ethers.BigNumber.from(costs); 
+        let costsBN = ethers.BigNumber.from(costs);
         console.log("costs:", costs);
         if (costsBN.eq(expectedMaximumCostsBN)) {
           costsWasAtMaxCounter++;
         }
-        
+
         await deployedResolver!.connect(signer).setOwnName(`account 2 testname ${i}`, { value: costs }); // .should.be.revertedWith("Amount requires to be exactly the costs");
       }
 
-      expect(costsWasAtMaxCounter).to.be.eq(4,  "expected the costs to stay at maximum of 256 DMD");
+      expect(costsWasAtMaxCounter).to.be.eq(4, "expected the costs to stay at maximum of 256 DMD");
 
     });
   });
@@ -102,7 +102,7 @@ describe("DiamondRegistry", function () {
 
       let nameToRegister = "justAnotherName"
       registerName(0, nameToRegister);
-      
+
       // await deployedResolver!.setOwnName("testname1", { value: currentRegistrationFee });
       // (await deployedResolver!.namesReverse(signers[0].address)).should.be.equal(nameToRegister);
     });
