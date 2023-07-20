@@ -5,14 +5,22 @@ pragma solidity ^0.8.9;
 // import "hardhat/console.sol";
 
 
-contract DiamondENSResolver {
+contract DiamondRegistry {
 
-    // mapping between node and name.
-    mapping(address => string) public names;
+    /// mapping between address and the current name.
+    mapping(address => bytes) public names;
+
+    /// mapping between the hash of the name and the address that owns it.abi
     mapping(bytes32 => address) public namesReverse;
+
+    /// mapping of the costs for setting the name.
     mapping(address => uint) public costs;
     
+    /// funds are sent to this reinsert pot.
     address public reinsertPotAddress;  
+
+    /// maximum costs for setting the name.
+    uint256 public maximumCosts = 256 ether;
  
     // event AddressChanged(address indexed node, uint coinType, bytes newAddress);
     event NameChanged(address indexed node, string name);
@@ -30,8 +38,12 @@ contract DiamondENSResolver {
         return keccak256(abi.encodePacked(name));
     }
 
+    function getHashOfNameBytes(bytes memory name) public pure returns (bytes32) {
+        return keccak256(abi.encodePacked(name));
+    }
+
     function name(address node) external view returns (string memory) {
-      return names[node];
+      return string(names[node]);
     }
 
     function getSetNameCost(address node) public view returns (uint) {
@@ -62,6 +74,11 @@ contract DiamondENSResolver {
     //     // the sent value of the change
     // }
 
+    function getAddressOfName(string calldata name) external view returns(address) {
+      bytes32 nameHash = getHashOfName(name);
+      return namesReverse[nameHash];
+    }
+
     function setOwnName(string calldata name) 
       external
       payable {
@@ -74,8 +91,20 @@ contract DiamondENSResolver {
         // this could also be a hash collison. bad luck, we don't care about this case.
         require(namesReverse[nameHash] == address(0), "Name already taken");
 
-        names[tx.origin] = name;
-        costs[tx.origin] = cost * 2;
+        bytes storage original_string = names[tx.origin];
+        
+        // if there is already a name stored, we can delete it.
+        if (original_string.length != 0) {
+          bytes32 original_nameHash = getHashOfNameBytes(original_string);
+          delete namesReverse[original_nameHash];
+        } 
+
+        names[tx.origin] = bytes(name);
+
+        if (cost < maximumCosts) {
+          costs[tx.origin] = cost * 2;
+        }
+        
         namesReverse[nameHash] = tx.origin;
 
         emit NameChanged(tx.origin, name);
@@ -83,6 +112,22 @@ contract DiamondENSResolver {
         payable(reinsertPotAddress).call{value: msg.value};
     }
 
-    // function ABI(bytes32 node, uint256 contentTypes) external view returns (uint256, bytes memory) {
+    // function stringsEquals(string memory s1, string memory s2) private pure returns (bool) {
+    // bytes memory b1 = bytes(s1);
+    // bytes memory b2 = bytes(s2);
+    // uint256 l1 = b1.length;
+    // if (l1 != b2.length) return false;
+    // for (uint256 i=0; i<l1; i++) {
+    //     if (b1[i] != b2[i]) return false;
     // }
+    // return true;
+    // }
+
+
+    /// ENS compatible function to get the address of a node
+    /// @param node The address of the node
+    function addr(bytes32 node) public view returns (address) {
+      return namesReverse[node];
+    }
+
 }

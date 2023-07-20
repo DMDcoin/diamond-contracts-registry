@@ -1,18 +1,15 @@
 import { ethers } from "hardhat";
 
 async function main() {
-  const currentTimestampInSeconds = Math.round(Date.now() / 1000);
-  const unlockTime = currentTimestampInSeconds + 60;
+ 
+  const DiamondRegistry = await ethers.getContractFactory("DiamondRegistry");
+  const resinsertPotAddress = "0x2000000000000000000000000000000000000001";
+  const DiamondRegistry = await DiamondRegistry.deploy(resinsertPotAddress);
 
-  const lockedAmount = ethers.utils.parseEther("0.001");
-
-  const Lock = await ethers.getContractFactory("Lock");
-  const lock = await Lock.deploy(unlockTime, { value: lockedAmount });
-
-  await lock.deployed();
+  await DiamondRegistry.deployed();
 
   console.log(
-    `Lock with ${ethers.utils.formatEther(lockedAmount)}ETH and unlock timestamp ${unlockTime} deployed to ${lock.address}`
+    `DiamondRegistry deployed to ${DiamondRegistry.address}`
   );
 }
 
