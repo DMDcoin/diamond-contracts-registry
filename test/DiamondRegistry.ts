@@ -61,22 +61,30 @@ describe("DiamondRegistry", function () {
       // currentRegistrationFee = currentRegistrationFee.mul(2);
     });
 
-    
-
     it("renaming costs stop growing after reaching max price.", async function () {
       // for this test we are using signers 2 account to have a fresh account.
 
+      const expectedMaximumCosts = ethers.utils.parseEther("256");
+      const expectedMaximumCostsBN = ethers.BigNumber.from(expectedMaximumCosts);
       let signer = signers[1];
+      deployedResolver!.connect(signer);
+      let costsWasAtMaxCounter = 0;
+      
+      for (let i = 0; i < 12; i++) {
 
-      (await deployedResolver!.getSetNameCost(signers[0].address)).should.be.equal(currentRegistrationFee);
+        let costs = await deployedResolver!.getSetNameCost(signer.address);
+        let costsBN = ethers.BigNumber.from(costs); 
+        console.log("costs:", costs);
+        if (costsBN.eq(expectedMaximumCostsBN)) {
+          costsWasAtMaxCounter++;
+        }
+        
+        await deployedResolver!.connect(signer).setOwnName(`account 2 testname ${i}`, { value: costs }); // .should.be.revertedWith("Amount requires to be exactly the costs");
+      }
 
-
+      expect(costsWasAtMaxCounter).to.be.eq(4,  "expected the costs to stay at maximum of 256 DMD");
 
     });
-
-
-    
-
   });
 
   async function registerName(signerIndex: number, name: string) {
