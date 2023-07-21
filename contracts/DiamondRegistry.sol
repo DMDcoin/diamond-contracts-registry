@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.18;
 
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+
 import {ByteUtils} from "./lib/ByteUtils.sol";
 import {TransferUtils} from "./lib/TransferUtils.sol";
 
 // Uncomment this line to use console.log
 // import "hardhat/console.sol";
 
-contract DiamondRegistry {
+contract DiamondRegistry is Initializable, OwnableUpgradeable {
     using ByteUtils for bytes1;
 
     uint256 public constant MIN_NAME_LENGTH = 3;
@@ -26,7 +29,7 @@ contract DiamondRegistry {
     address public reinsertPotAddress;
 
     /// maximum costs for setting the name.
-    uint256 public maximumCosts = 256 ether;
+    uint256 public maximumCosts;
 
     // event AddressChanged(address indexed node, uint coinType, bytes newAddress);
     event NameChanged(address indexed node, string name);
@@ -36,10 +39,18 @@ contract DiamondRegistry {
     //     return owner == msg.sender || authorisations[node][owner][msg.sender];
     // }
 
-    constructor(address _reinsertPotAddress) {
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(address _reinsertPotAddress) external initializer {
         require(_reinsertPotAddress != address(0), "ReinsertPotAddress must not be 0");
 
+        __Ownable_init();
+
         reinsertPotAddress = _reinsertPotAddress;
+        maximumCosts = 256 ether;
     }
 
     // function setOwnName(string calldata name)
