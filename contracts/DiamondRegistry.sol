@@ -46,7 +46,7 @@ contract DiamondRegistry {
     //   external
     //   payable {
 
-    //     setName(tx.origin, name);
+    //     setName(msg.sender, name);
 
     //     uint currentCosts = currentCosts[node];
     //     if (currentCosts > 0) {
@@ -60,8 +60,8 @@ contract DiamondRegistry {
     // }
 
     function setOwnName(string calldata _name) external payable {
-        // require(node == tx.origin, "Only the own name can be set.");
-        uint cost = getSetNameCost(tx.origin);
+        // require(node == msg.sender, "Only the own name can be set.");
+        uint cost = getSetNameCost(msg.sender);
         require(cost == msg.value, "Amount requires to be exactly the costs");
 
         bytes32 nameHash = getHashOfName(_name);
@@ -69,7 +69,7 @@ contract DiamondRegistry {
         require(valid(_name), "Name not valid");
         require(available(_name), "Name not available");
 
-        bytes storage originalString = names[tx.origin];
+        bytes storage originalString = names[msg.sender];
 
         // if there is already a name stored, we can delete it.
         if (originalString.length != 0) {
@@ -78,15 +78,15 @@ contract DiamondRegistry {
         }
 
         if (cost < maximumCosts) {
-            costs[tx.origin] = cost * 2;
+            costs[msg.sender] = cost * 2;
         }
 
-        names[tx.origin] = bytes(_name);
-        namesReverse[nameHash] = tx.origin;
+        names[msg.sender] = bytes(_name);
+        namesReverse[nameHash] = msg.sender;
 
         TransferUtils.transferNative(reinsertPotAddress, msg.value);
 
-        emit NameChanged(tx.origin, _name);
+        emit NameChanged(msg.sender, _name);
     }
 
     // function stringsEquals(string memory s1, string memory s2) private pure returns (bool) {
