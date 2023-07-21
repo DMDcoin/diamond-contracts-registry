@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.9;
+pragma solidity 0.8.18;
 
-import {StringUtils} from "./lib/StringUtils.sol";
+import {ByteUtils} from "./lib/ByteUtils.sol";
 import {TransferUtils} from "./lib/TransferUtils.sol";
 
 // Uncomment this line to use console.log
 // import "hardhat/console.sol";
 
 contract DiamondRegistry {
-    using StringUtils for bytes1;
+    using ByteUtils for bytes1;
 
     uint256 public constant MIN_NAME_LENGTH = 3;
-    uint256 public constant MAX_NAME_LENGHT = 255;
+    uint256 public constant MAX_NAME_LENGHT = 32;
 
     /// mapping between address and the current name.
     mapping(address => bytes) public names;
@@ -20,7 +20,7 @@ contract DiamondRegistry {
     mapping(bytes32 => address) public namesReverse;
 
     /// mapping of the costs for setting the name.
-    mapping(address => uint) public costs;
+    mapping(address => uint256) public costs;
 
     /// funds are sent to this reinsert pot.
     address public reinsertPotAddress;
@@ -143,28 +143,34 @@ contract DiamondRegistry {
         return keccak256(abi.encodePacked(_name));
     }
 
-    /// ENS requirements:
-    /// - ASCII and Unicode characters
-    /// - min 3 symbols length
-    ///
-    /// DNS requirements:
-    /// - only ASCII characters
-    /// - min 2 symbols length
-    /// - max 255 symbols length
     function valid(string memory _name) public pure returns (bool) {
         bytes memory nameBytes = bytes(_name);
         uint256 byteLength = nameBytes.length;
 
-        uint256 len = 0;
+        // Name length must be in range [MIN_NAME_LENTGH, MAX_NAME_LENGTH]
+        if (byteLength < MIN_NAME_LENGTH || byteLength > MAX_NAME_LENGHT) {
+            return false;
+        }
 
-        for (len = 0; len < byteLength; ++len) {
-            bytes1 b = nameBytes[len];
+        // Name must begin and end with alphabetic character or digit
+        if (!nameBytes[0].isAlphaNum() || !nameBytes[byteLength - 1].isAlphaNum()) {
+            return false;
+        }
 
-            if (!b.isAlpha() && !b.isDigit() && !b.isAllowedSpecial()) {
+        for (uint256 i = 1; i < byteLength; ++i) {
+            bytes1 previousByte = nameBytes[i - 1];
+            bytes1 b = nameBytes[i];
+
+            if (!b.isAlpha() && !b.isDigit() && !b.isHyphen()) {
+                return false;
+            }
+
+            // repeated use of hyphen '-' not allowed
+            if (previousByte.isHyphen() && b.isHyphen()) {
                 return false;
             }
         }
 
-        return len >= MIN_NAME_LENGTH && len <= MAX_NAME_LENGHT;
+        return true;
     }
 }

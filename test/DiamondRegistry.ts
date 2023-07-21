@@ -23,12 +23,18 @@ describe("DiamondRegistry", function () {
   const InvalidNames = [
     '!123',
     '★★★',
-    '1',
-    'a'.repeat(256),
+    'a',
+    'aa',
+    'a'.repeat(33),
     'abc~',
     'abc,abc',
+    'abcabc,',
+    ',abcabc',
     'abc abc',
-    'abc_abc'
+    'abc_abc',
+    '-adasdasd',
+    'asdadas-',
+    'a-b-c--d',
   ];
 
   describe("Deploy", function () {
@@ -174,7 +180,7 @@ describe("DiamondRegistry", function () {
     });
 
     it("should get address by name hash", async function () {
-      const nameToRegister = "my.Awesome.Name"
+      const nameToRegister = "myAwesomeName"
       const owner = await registerName(7, nameToRegister);
 
       const nameHash = await deployedResolver!.getHashOfName(nameToRegister);
@@ -184,7 +190,7 @@ describe("DiamondRegistry", function () {
 
   describe("name validation", function () {
     InvalidNames.forEach((userName, index) => {
-      it(`should not allow to set invalid name, test#${index}`, async function () {
+      it(`should not allow to set invalid name, test#${index + 1}`, async function () {
         const alice = signers[11];
 
         const cost = await deployedResolver!.getSetNameCost(alice.address);
