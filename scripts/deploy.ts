@@ -1,10 +1,14 @@
-import { ethers } from "hardhat";
+import { ethers, upgrades } from "hardhat";
 
 async function main() {
- 
-  const DiamondRegistry = await ethers.getContractFactory("DiamondRegistry");
+  const DiamondRegistryFactory = await ethers.getContractFactory("DiamondRegistry");
   const resinsertPotAddress = "0x2000000000000000000000000000000000000001";
-  const DiamondRegistry = await DiamondRegistry.deploy(resinsertPotAddress);
+
+  const DiamondRegistry = await upgrades.deployProxy(
+    DiamondRegistryFactory,
+    [resinsertPotAddress],
+    { initializer: 'initialize' }
+  );
 
   await DiamondRegistry.deployed();
 
