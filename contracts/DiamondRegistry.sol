@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.18;
 
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+
 import {ByteUtils} from "./lib/ByteUtils.sol";
 import {TransferUtils} from "./lib/TransferUtils.sol";
 
 // Uncomment this line to use console.log
 // import "hardhat/console.sol";
 
-contract DiamondRegistry {
+contract DiamondRegistry is Initializable, OwnableUpgradeable {
     using ByteUtils for bytes1;
 
     uint256 public constant MIN_NAME_LENGTH = 3;
@@ -26,7 +29,7 @@ contract DiamondRegistry {
     address public reinsertPotAddress;
 
     /// maximum costs for setting the name.
-    uint256 public maximumCosts = 256 ether;
+    uint256 public maximumCosts;
 
     // event AddressChanged(address indexed node, uint coinType, bytes newAddress);
     event NameChanged(address indexed node, string name);
@@ -36,17 +39,25 @@ contract DiamondRegistry {
     //     return owner == msg.sender || authorisations[node][owner][msg.sender];
     // }
 
-    constructor(address _reinsertPotAddress) {
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(address _reinsertPotAddress) external initializer {
         require(_reinsertPotAddress != address(0), "ReinsertPotAddress must not be 0");
 
+        __Ownable_init();
+
         reinsertPotAddress = _reinsertPotAddress;
+        maximumCosts = 256 ether;
     }
 
     // function setOwnName(string calldata name)
     //   external
     //   payable {
 
-    //     setName(tx.origin, name);
+    //     setName(msg.sender, name);
 
     //     uint currentCosts = currentCosts[node];
     //     if (currentCosts > 0) {
@@ -60,8 +71,8 @@ contract DiamondRegistry {
     // }
 
     function setOwnName(string calldata _name) external payable {
-        // require(node == tx.origin, "Only the own name can be set.");
-        uint cost = getSetNameCost(tx.origin);
+        // require(node == msg.sender, "Only the own name can be set.");
+        uint cost = getSetNameCost(msg.sender);
         require(cost == msg.value, "Amount requires to be exactly the costs");
 
         bytes32 nameHash = getHashOfName(_name);
@@ -69,7 +80,7 @@ contract DiamondRegistry {
         require(valid(_name), "Name not valid");
         require(available(_name), "Name not available");
 
-        bytes storage originalString = names[tx.origin];
+        bytes storage originalString = names[msg.sender];
 
         // if there is already a name stored, we can delete it.
         if (originalString.length != 0) {
@@ -78,15 +89,15 @@ contract DiamondRegistry {
         }
 
         if (cost < maximumCosts) {
-            costs[tx.origin] = cost * 2;
+            costs[msg.sender] = cost * 2;
         }
 
-        names[tx.origin] = bytes(_name);
-        namesReverse[nameHash] = tx.origin;
+        names[msg.sender] = bytes(_name);
+        namesReverse[nameHash] = msg.sender;
 
         TransferUtils.transferNative(reinsertPotAddress, msg.value);
 
-        emit NameChanged(tx.origin, _name);
+        emit NameChanged(msg.sender, _name);
     }
 
     // function stringsEquals(string memory s1, string memory s2) private pure returns (bool) {

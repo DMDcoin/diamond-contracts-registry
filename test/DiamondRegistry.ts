@@ -1,7 +1,7 @@
 import { time, loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 import { expect } from "chai";
-import { ethers } from "hardhat";
+import { ethers, upgrades } from "hardhat";
 import { BigNumber } from "ethers";
 import { DiamondRegistry, MockEtherReceiver } from "../typechain-types";
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
@@ -42,7 +42,11 @@ describe("DiamondRegistry", function () {
       signers = await ethers.getSigners();
 
       const ens_resolver_factory = await ethers.getContractFactory("DiamondRegistry");
-      deployedResolver = await ens_resolver_factory.deploy(mockReinsertPotAddress) as DiamondRegistry;
+      deployedResolver = await upgrades.deployProxy(
+        ens_resolver_factory,
+        [mockReinsertPotAddress],
+        { initializer: 'initialize' }
+      ) as DiamondRegistry;
 
       expect(await deployedResolver.deployed());
 
@@ -55,8 +59,27 @@ describe("DiamondRegistry", function () {
     it("should not deploy with reinsert pot address = address(0)", async function () {
       const contractFactory = await ethers.getContractFactory("DiamondRegistry");
 
-      await expect(contractFactory.deploy(ethers.constants.AddressZero))
-        .to.be.revertedWith("ReinsertPotAddress must not be 0");
+      await expect(
+        upgrades.deployProxy(
+          contractFactory,
+          [ethers.constants.AddressZero],
+          { initializer: 'initialize' }
+        )
+      ).to.be.revertedWith("ReinsertPotAddress must not be 0");
+    });
+
+    it("should not allow initialization of initialized contract", async function () {
+      const contractFactory = await ethers.getContractFactory("DiamondRegistry");
+
+      const contract = await upgrades.deployProxy(
+        contractFactory,
+        [mockReinsertPotAddress],
+        { initializer: 'initialize' }
+      ) as DiamondRegistry;
+
+      await expect(
+        contract.initialize(contract.address)
+      ).to.be.revertedWith("Initializable: contract is already initialized");
     });
   });
 
@@ -148,7 +171,11 @@ describe("DiamondRegistry", function () {
 
     it("should revert transaction if transfer failed", async function () {
       const contractFactory = await ethers.getContractFactory("DiamondRegistry");
-      const contract = await contractFactory.deploy(etherReceiverMock.address);
+      const contract = await upgrades.deployProxy(
+        contractFactory,
+        [etherReceiverMock.address],
+        { initializer: 'initialize' }
+      ) as DiamondRegistry;
 
       await contract.deployed();
 
