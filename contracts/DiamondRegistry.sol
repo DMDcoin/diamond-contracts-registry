@@ -1,11 +1,17 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.9;
+pragma solidity 0.8.18;
+
+import {ByteUtils} from "./lib/ByteUtils.sol";
+import {TransferUtils} from "./lib/TransferUtils.sol";
 
 // Uncomment this line to use console.log
 // import "hardhat/console.sol";
 
-
 contract DiamondRegistry {
+    using ByteUtils for bytes1;
+
+    uint256 public constant MIN_NAME_LENGTH = 3;
+    uint256 public constant MAX_NAME_LENGHT = 32;
 
     /// mapping between address and the current name.
     mapping(address => bytes) public names;
@@ -14,14 +20,14 @@ contract DiamondRegistry {
     mapping(bytes32 => address) public namesReverse;
 
     /// mapping of the costs for setting the name.
-    mapping(address => uint) public costs;
-    
+    mapping(address => uint256) public costs;
+
     /// funds are sent to this reinsert pot.
-    address public reinsertPotAddress;  
+    address public reinsertPotAddress;
 
     /// maximum costs for setting the name.
     uint256 public maximumCosts = 256 ether;
- 
+
     // event AddressChanged(address indexed node, uint coinType, bytes newAddress);
     event NameChanged(address indexed node, string name);
 
@@ -31,85 +37,56 @@ contract DiamondRegistry {
     // }
 
     constructor(address _reinsertPotAddress) {
+        require(_reinsertPotAddress != address(0), "ReinsertPotAddress must not be 0");
+
         reinsertPotAddress = _reinsertPotAddress;
     }
 
-    function getHashOfName(string memory name) public pure returns (bytes32) {
-        return keccak256(abi.encodePacked(name));
-    }
-
-    function getHashOfNameBytes(bytes memory name) public pure returns (bytes32) {
-        return keccak256(abi.encodePacked(name));
-    }
-
-    function name(address node) external view returns (string memory) {
-      return string(names[node]);
-    }
-
-    function getSetNameCost(address node) public view returns (uint) {
-
-        uint cost = costs[node]; 
-        if (cost > 0) {
-          return cost;
-        } else {
-          return 1 ether; // , "Fee is exactly 1 DMD");
-        }
-    }
-
-    // function setOwnName(string calldata name) 
+    // function setOwnName(string calldata name)
     //   external
     //   payable {
 
     //     setName(tx.origin, name);
-        
 
-    //     uint currentCosts = currentCosts[node]; 
+    //     uint currentCosts = currentCosts[node];
     //     if (currentCosts > 0) {
     //       require(msg.value == currentCosts, "Not enough funds to set name");
     //     } else {
     //       require(msg.value == 1 ether, "Fee is exactly 1 DMD");
     //     }
 
-    //     // if 
+    //     // if
     //     // the sent value of the change
     // }
 
-    function getAddressOfName(string calldata name) external view returns(address) {
-      bytes32 nameHash = getHashOfName(name);
-      return namesReverse[nameHash];
-    }
-
-    function setOwnName(string calldata name) 
-      external
-      payable {
-
+    function setOwnName(string calldata _name) external payable {
         // require(node == tx.origin, "Only the own name can be set.");
         uint cost = getSetNameCost(tx.origin);
         require(cost == msg.value, "Amount requires to be exactly the costs");
 
-        bytes32 nameHash = getHashOfName(name);
-        // this could also be a hash collison. bad luck, we don't care about this case.
-        require(namesReverse[nameHash] == address(0), "Name already taken");
+        bytes32 nameHash = getHashOfName(_name);
 
-        bytes storage original_string = names[tx.origin];
-        
+        require(valid(_name), "Name not valid");
+        require(available(_name), "Name not available");
+
+        bytes storage originalString = names[tx.origin];
+
         // if there is already a name stored, we can delete it.
-        if (original_string.length != 0) {
-          bytes32 original_nameHash = getHashOfNameBytes(original_string);
-          delete namesReverse[original_nameHash];
-        } 
-
-        names[tx.origin] = bytes(name);
+        if (originalString.length != 0) {
+            bytes32 original_nameHash = getHashOfNameBytes(originalString);
+            delete namesReverse[original_nameHash];
+        }
 
         if (cost < maximumCosts) {
-          costs[tx.origin] = cost * 2;
+            costs[tx.origin] = cost * 2;
         }
-        
+
+        names[tx.origin] = bytes(_name);
         namesReverse[nameHash] = tx.origin;
 
-        emit NameChanged(tx.origin, name);
+        TransferUtils.transferNative(reinsertPotAddress, msg.value);
 
-        payable(reinsertPotAddress).call{value: msg.value};
+        emit NameChanged(tx.origin, _name);
     }
 
     // function stringsEquals(string memory s1, string memory s2) private pure returns (bool) {
@@ -123,11 +100,77 @@ contract DiamondRegistry {
     // return true;
     // }
 
+    function getAddressOfName(
+        string calldata _name
+    ) external view returns (address) {
+        bytes32 nameHash = getHashOfName(_name);
+        return namesReverse[nameHash];
+    }
+
+    function name(address node) external view returns (string memory) {
+        return string(names[node]);
+    }
 
     /// ENS compatible function to get the address of a node
     /// @param node The address of the node
     function addr(bytes32 node) public view returns (address) {
-      return namesReverse[node];
+        return namesReverse[node];
     }
 
+    function available(string memory _name) public view returns (bool) {
+        bytes32 nameHash = getHashOfName(_name);
+
+        // this could also be a hash collison. bad luck, we don't care about this case.
+        return namesReverse[nameHash] == address(0);
+    }
+
+    function getSetNameCost(address node) public view returns (uint) {
+        uint cost = costs[node];
+        if (cost > 0) {
+            return cost;
+        } else {
+            return 1 ether; // , "Fee is exactly 1 DMD");
+        }
+    }
+
+    function getHashOfName(string memory _name) public pure returns (bytes32) {
+        return keccak256(abi.encodePacked(_name));
+    }
+
+    function getHashOfNameBytes(
+        bytes memory _name
+    ) public pure returns (bytes32) {
+        return keccak256(abi.encodePacked(_name));
+    }
+
+    function valid(string memory _name) public pure returns (bool) {
+        bytes memory nameBytes = bytes(_name);
+        uint256 byteLength = nameBytes.length;
+
+        // Name length must be in range [MIN_NAME_LENTGH, MAX_NAME_LENGTH]
+        if (byteLength < MIN_NAME_LENGTH || byteLength > MAX_NAME_LENGHT) {
+            return false;
+        }
+
+        // Name must begin and end with alphabetic character or digit
+        if (!nameBytes[0].isAlphaNum() || !nameBytes[byteLength - 1].isAlphaNum()) {
+            return false;
+        }
+
+        for (uint256 i = 1; i < byteLength; ++i) {
+            bytes1 previousByte = nameBytes[i - 1];
+            bytes1 b = nameBytes[i];
+
+            if (!b.isAlpha() && !b.isDigit() && !b.isHyphen()) {
+                return false;
+            }
+
+            // repeated use of hyphen '-' not allowed
+            if (previousByte.isHyphen() && b.isHyphen()) {
+                return false;
+            }
+        }
+
+        return true;
+    }
 }
