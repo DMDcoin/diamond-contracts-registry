@@ -6,7 +6,10 @@ typechain
 typechain-types
 
 # Hardhat files
-cache
+cache/
 artifacts
 .mnemonic
 /src/types
+
+# foundry files
+out/
