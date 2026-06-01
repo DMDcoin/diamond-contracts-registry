@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity 0.8.18;
+// SPDX-License-Identifier: GPL-3.0-or-later
+pragma solidity 0.8.33;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
@@ -47,7 +47,7 @@ contract DiamondRegistry is Initializable, OwnableUpgradeable {
     function initialize(address _reinsertPotAddress) external initializer {
         require(_reinsertPotAddress != address(0), "ReinsertPotAddress must not be 0");
 
-        __Ownable_init();
+        __Ownable_init(msg.sender);
 
         reinsertPotAddress = _reinsertPotAddress;
         maximumCosts = 256 ether;
