@@ -2,6 +2,7 @@
 pragma solidity 0.8.33;
 
 contract MockEtherReceiver {
+
     bool public allowReceive;
 
     constructor() {
@@ -17,4 +18,5 @@ contract MockEtherReceiver {
     function toggleReceive(bool allow) external {
         allowReceive = allow;
     }
+
 }

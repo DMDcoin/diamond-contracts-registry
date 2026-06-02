@@ -43,10 +43,10 @@ sort_imports = true
 prefer_compact = "none"
 single_line_imports = true
 
-[profile.default.rpc_endpoints]
+[rpc_endpoints]
 dmd_mainnet = "https://rpc.bit.diamonds"
 dmd_testnet = "http://62.171.133.46:20100"
 
-[profile.default.etherscan]
+[etherscan]
 dmd_mainnet = { key = "abc", url = "https://explorer.bit.diamonds/api"}
 dmd_testnet = { key = "abc", url = "https://testnet-explorer.bit.diamonds/api"}

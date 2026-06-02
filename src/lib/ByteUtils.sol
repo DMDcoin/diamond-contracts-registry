@@ -2,10 +2,9 @@
 pragma solidity 0.8.33;
 
 library ByteUtils {
+
     function isAlpha(bytes1 _byte) internal pure returns (bool) {
-        return
-            (_byte > 0x40 && _byte < 0x5b)      // A-Z
-            || (_byte > 0x60 && _byte < 0x7b);  // a-z
+        return _byte > 0x60 && _byte < 0x7b; // a-z
     }
 
     function isDigit(bytes1 _byte) internal pure returns (bool) {
@@ -19,4 +18,5 @@ library ByteUtils {
     function isHyphen(bytes1 _byte) internal pure returns (bool) {
         return _byte == 0x2d; // '-'
     }
+
 }

@@ -1,20 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity 0.8.33;
 
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import {ByteUtils} from "./lib/ByteUtils.sol";
-import {TransferUtils} from "./lib/TransferUtils.sol";
-
-// Uncomment this line to use console.log
-// import "hardhat/console.sol";
+import { ByteUtils } from "./lib/ByteUtils.sol";
+import { TransferUtils } from "./lib/TransferUtils.sol";
 
 contract DiamondRegistry is Initializable, OwnableUpgradeable {
+
     using ByteUtils for bytes1;
 
-    uint256 public constant MIN_NAME_LENGTH = 3;
-    uint256 public constant MAX_NAME_LENGHT = 32;
+    uint256 public constant MIN_NAME_LENGTH = 2;
+    uint256 public constant MAX_NAME_LENGHT = 63;
 
     /// mapping between address and the current name.
     mapping(address => bytes) public names;
@@ -34,11 +32,6 @@ contract DiamondRegistry is Initializable, OwnableUpgradeable {
     // event AddressChanged(address indexed node, uint coinType, bytes newAddress);
     event NameChanged(address indexed node, string name);
 
-    // function isAuthorised(bytes32 node) internal view returns(bool) {
-    //     address owner = ens.owner(node);
-    //     return owner == msg.sender || authorisations[node][owner][msg.sender];
-    // }
-
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -53,26 +46,9 @@ contract DiamondRegistry is Initializable, OwnableUpgradeable {
         maximumCosts = 256 ether;
     }
 
-    // function setOwnName(string calldata name)
-    //   external
-    //   payable {
-
-    //     setName(msg.sender, name);
-
-    //     uint currentCosts = currentCosts[node];
-    //     if (currentCosts > 0) {
-    //       require(msg.value == currentCosts, "Not enough funds to set name");
-    //     } else {
-    //       require(msg.value == 1 ether, "Fee is exactly 1 DMD");
-    //     }
-
-    //     // if
-    //     // the sent value of the change
-    // }
-
     function setOwnName(string calldata _name) external payable {
         // require(node == msg.sender, "Only the own name can be set.");
-        uint cost = getSetNameCost(msg.sender);
+        uint256 cost = getSetNameCost(msg.sender);
         require(cost == msg.value, "Amount requires to be exactly the costs");
 
         bytes32 nameHash = getHashOfName(_name);
@@ -100,20 +76,7 @@ contract DiamondRegistry is Initializable, OwnableUpgradeable {
         emit NameChanged(msg.sender, _name);
     }
 
-    // function stringsEquals(string memory s1, string memory s2) private pure returns (bool) {
-    // bytes memory b1 = bytes(s1);
-    // bytes memory b2 = bytes(s2);
-    // uint256 l1 = b1.length;
-    // if (l1 != b2.length) return false;
-    // for (uint256 i=0; i<l1; i++) {
-    //     if (b1[i] != b2[i]) return false;
-    // }
-    // return true;
-    // }
-
-    function getAddressOfName(
-        string calldata _name
-    ) external view returns (address) {
+    function getAddressOfName(string calldata _name) external view returns (address) {
         bytes32 nameHash = getHashOfName(_name);
         return namesReverse[nameHash];
     }
@@ -128,15 +91,15 @@ contract DiamondRegistry is Initializable, OwnableUpgradeable {
         return namesReverse[node];
     }
 
-    function available(string memory _name) public view returns (bool) {
+    function available(string calldata _name) public view returns (bool) {
         bytes32 nameHash = getHashOfName(_name);
 
         // this could also be a hash collison. bad luck, we don't care about this case.
-        return namesReverse[nameHash] == address(0);
+        return valid(_name) && namesReverse[nameHash] == address(0);
     }
 
-    function getSetNameCost(address node) public view returns (uint) {
-        uint cost = costs[node];
+    function getSetNameCost(address node) public view returns (uint256) {
+        uint256 cost = costs[node];
         if (cost > 0) {
             return cost;
         } else {
@@ -144,17 +107,15 @@ contract DiamondRegistry is Initializable, OwnableUpgradeable {
         }
     }
 
-    function getHashOfName(string memory _name) public pure returns (bytes32) {
+    function getHashOfName(string calldata _name) public pure returns (bytes32) {
         return keccak256(abi.encodePacked(_name));
     }
 
-    function getHashOfNameBytes(
-        bytes memory _name
-    ) public pure returns (bytes32) {
+    function getHashOfNameBytes(bytes memory _name) public pure returns (bytes32) {
         return keccak256(abi.encodePacked(_name));
     }
 
-    function valid(string memory _name) public pure returns (bool) {
+    function valid(string calldata _name) public pure returns (bool) {
         bytes memory nameBytes = bytes(_name);
         uint256 byteLength = nameBytes.length;
 
@@ -172,7 +133,7 @@ contract DiamondRegistry is Initializable, OwnableUpgradeable {
             bytes1 previousByte = nameBytes[i - 1];
             bytes1 b = nameBytes[i];
 
-            if (!b.isAlpha() && !b.isDigit() && !b.isHyphen()) {
+            if (!b.isAlphaNum() && !b.isHyphen()) {
                 return false;
             }
 
