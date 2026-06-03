@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-pragma solidity 0.8.33;
+pragma solidity 0.8.25;
 
 library ByteUtils {
-
     function isAlpha(bytes1 _byte) internal pure returns (bool) {
         return _byte > 0x60 && _byte < 0x7b; // a-z
     }
@@ -18,5 +17,4 @@ library ByteUtils {
     function isHyphen(bytes1 _byte) internal pure returns (bool) {
         return _byte == 0x2d; // '-'
     }
-
 }

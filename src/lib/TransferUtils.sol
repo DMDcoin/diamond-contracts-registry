@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-pragma solidity 0.8.33;
+pragma solidity 0.8.25;
 
 library TransferUtils {
-
     error TransferFailed(address recipient, uint256 amount);
 
     function transferNative(address recipient, uint256 amount) internal {
@@ -12,5 +11,4 @@ library TransferUtils {
             revert TransferFailed(recipient, amount);
         }
     }
-
 }

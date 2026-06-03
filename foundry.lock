@@ -1,4 +1,10 @@
 {
+  "lib/diamond-contracts-core": {
+    "tag": {
+      "name": "v3",
+      "rev": "a121c2f26403134960095bc60a661e18cc3a0a5c"
+    }
+  },
   "lib/forge-std": {
     "tag": {
       "name": "v1.16.1",
