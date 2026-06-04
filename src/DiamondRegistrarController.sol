@@ -1,39 +1,49 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity 0.8.25;
 
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
-import {ValueGuards} from "diamond-contracts-core/lib/ValueGuards.sol";
+import { ValueGuards } from "diamond-contracts-core/lib/ValueGuards.sol";
 
-import {IDiamondNames} from "./interface/IDiamondNames.sol";
-import {ByteUtils} from "./lib/ByteUtils.sol";
-import {TransferUtils} from "./lib/TransferUtils.sol";
+import { IDiamondNames } from "./interface/IDiamondNames.sol";
+import { ByteUtils } from "./lib/ByteUtils.sol";
+import { TransferUtils } from "./lib/TransferUtils.sol";
 
-contract DiamondNameRegistrar is Initializable, OwnableUpgradeable, ValueGuards {
+contract DiamondRegistrarController is Initializable, OwnableUpgradeable, ValueGuards {
     using ByteUtils for bytes1;
 
     uint256 public constant MIN_NAME_LENGTH = 2;
     uint256 public constant MAX_NAME_LENGHT = 63;
     uint256 public constant DEFAULT_MINTING_FEE = 5 ether;
 
-    uint256 private constant BASE_MINTING_FEE = 78125000 gwei; // 0.078125 DMD
+    uint256 private constant BASE_MINTING_FEE = 78_125_000 gwei; // 0.078125 DMD
 
-    /// mapping between address and the current name.
+    /**
+     * mapping between address and the current name.
+     */
     mapping(address => bytes) public names;
 
-    /// mapping between the hash of the name and the address that owns it.abi
+    /**
+     * mapping between the hash of the name and the address that owns it.abi
+     */
     mapping(bytes32 => address) public namesReverse;
 
-    /// mapping of the costs for setting the name.
+    /**
+     * mapping of the costs for setting the name.
+     */
     mapping(address => uint256) public costs;
 
     IDiamondNames public diamondNames;
 
-    /// funds are sent to this reinsert pot.
+    /**
+     * funds are sent to this reinsert pot.
+     */
     address public reinsertPotAddress;
 
-    /// maximum costs for setting the name.
+    /**
+     * maximum costs for setting the name.
+     */
     uint256 public mintingFee;
 
     error InvalidAddress();
@@ -46,12 +56,15 @@ contract DiamondNameRegistrar is Initializable, OwnableUpgradeable, ValueGuards 
 
     event SetMintingFee(uint256 indexed value);
 
-    /// @custom:oz-upgrades-unsafe-allow constructor
+    /**
+     * @custom:oz-upgrades-unsafe-allow constructor
+     */
     constructor() {
         _disableInitializers();
     }
 
     function initialize(
+        address _initialOwner,
         address _reinsertPotAddress,
         address _diamondNames
     ) external initializer {
@@ -63,7 +76,7 @@ contract DiamondNameRegistrar is Initializable, OwnableUpgradeable, ValueGuards 
             revert InvalidAddress();
         }
 
-        __Ownable_init(msg.sender);
+        __Ownable_init(_initialOwner);
 
         diamondNames = IDiamondNames(_diamondNames);
         reinsertPotAddress = _reinsertPotAddress;
@@ -71,9 +84,7 @@ contract DiamondNameRegistrar is Initializable, OwnableUpgradeable, ValueGuards 
         mintingFee = DEFAULT_MINTING_FEE;
 
         __initAllowedChangeableParameter(
-            this.setMintingFee.selector,
-            this.mintingFee.selector,
-            _mintingFeeAllowedValues()
+            this.setMintingFee.selector, this.mintingFee.selector, _mintingFeeAllowedValues()
         );
     }
 
@@ -83,13 +94,10 @@ contract DiamondNameRegistrar is Initializable, OwnableUpgradeable, ValueGuards 
         emit SetMintingFee(_value);
     }
 
-    function setOwnName(string calldata _name) external payable {
+    function register(string calldata _name) external payable {
         if (msg.value != mintingFee) {
             revert InvalidMintingFee(mintingFee, msg.value);
         }
-
-        bytes32 nameHash = getHashOfName(_name);
-        uint256 nameId = uint256(nameHash);
 
         if (!valid(_name)) {
             revert InvalidName();
@@ -98,6 +106,9 @@ contract DiamondNameRegistrar is Initializable, OwnableUpgradeable, ValueGuards 
         if (!available(_name)) {
             revert NotAvailable();
         }
+
+        bytes32 nameHash = getHashOfName(_name);
+        uint256 nameId = uint256(nameHash);
 
         bytes storage originalString = names[msg.sender];
 
@@ -117,9 +128,7 @@ contract DiamondNameRegistrar is Initializable, OwnableUpgradeable, ValueGuards 
         emit NameChanged(msg.sender, _name);
     }
 
-    function getAddressOfName(
-        string calldata _name
-    ) external view returns (address) {
+    function getAddressOfName(string calldata _name) external view returns (address) {
         bytes32 nameHash = getHashOfName(_name);
         return namesReverse[nameHash];
     }
@@ -128,8 +137,10 @@ contract DiamondNameRegistrar is Initializable, OwnableUpgradeable, ValueGuards 
         return string(names[node]);
     }
 
-    /// ENS compatible function to get the address of a node
-    /// @param node The address of the node
+    /**
+     * ENS compatible function to get the address of a node
+     * @param node The address of the node
+     */
     function addr(bytes32 node) public view returns (address) {
         return namesReverse[node];
     }
@@ -150,15 +161,11 @@ contract DiamondNameRegistrar is Initializable, OwnableUpgradeable, ValueGuards 
         }
     }
 
-    function getHashOfName(
-        string calldata _name
-    ) public pure returns (bytes32) {
+    function getHashOfName(string calldata _name) public pure returns (bytes32) {
         return keccak256(abi.encodePacked(_name));
     }
 
-    function getHashOfNameBytes(
-        bytes memory _name
-    ) public pure returns (bytes32) {
+    function getHashOfNameBytes(bytes memory _name) public pure returns (bytes32) {
         return keccak256(abi.encodePacked(_name));
     }
 
@@ -172,10 +179,7 @@ contract DiamondNameRegistrar is Initializable, OwnableUpgradeable, ValueGuards 
         }
 
         // Name must begin and end with alphabetic character or digit
-        if (
-            !nameBytes[0].isAlphaNum() ||
-            !nameBytes[byteLength - 1].isAlphaNum()
-        ) {
+        if (!nameBytes[0].isAlphaNum() || !nameBytes[byteLength - 1].isAlphaNum()) {
             return false;
         }
 

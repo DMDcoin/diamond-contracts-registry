@@ -20,6 +20,10 @@ remappings = [
     "diamond-contracts-core/=lib/diamond-contracts-core/contracts/",
 ]
 
+ignored_warnings_from = ["lib/openzeppelin-foundry-upgrades"]
+
+no_match_coverage = "src/mocks/.*"
+
 [lint]
 lint_on_build = true
 severity = ["high", "medium", "low", "info", "gas"]
