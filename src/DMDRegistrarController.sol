@@ -4,20 +4,30 @@ pragma solidity 0.8.25;
 import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
+import { DateTimeLib } from "solady/utils/DateTimeLib.sol";
+
 import { ValueGuards } from "diamond-contracts-core/lib/ValueGuards.sol";
 
-import { IDiamondNames } from "./interface/IDiamondNames.sol";
+import { IDMDNames } from "./interface/IDMDNames.sol";
+import { IENS } from "./interface/IENS.sol";
+import { IResolver } from "./interface/IResolver.sol";
 import { ByteUtils } from "./lib/ByteUtils.sol";
+import { Errors } from "./lib/Errors.sol";
 import { TransferUtils } from "./lib/TransferUtils.sol";
 
-contract DiamondRegistrarController is Initializable, OwnableUpgradeable, ValueGuards {
+contract DMDRegistrarController is Initializable, OwnableUpgradeable, ValueGuards {
     using ByteUtils for bytes1;
+
+    // keccak256(abi.encodePacked(bytes32(0), keccak256("dmd")))
+    bytes32 public constant DMD_NODE = 0x9904bf4b5751e3b6a8b75d14c49424160de1a8fa8a90fd5c9fccdeac0503e612;
 
     uint256 public constant MIN_NAME_LENGTH = 2;
     uint256 public constant MAX_NAME_LENGHT = 63;
-    uint256 public constant DEFAULT_MINTING_FEE = 5 ether;
 
-    uint256 private constant BASE_MINTING_FEE = 78_125_000 gwei; // 0.078125 DMD
+    uint256 public constant DEFAULT_MINTING_FEE = 5 ether;
+    uint256 public constant BASE_MINTING_FEE = 78_125_000 gwei; // 0.078125 DMD
+
+    uint256 public constant EXPIRATION_TIME_YEARS = 10;
 
     /**
      * mapping between address and the current name.
@@ -25,36 +35,44 @@ contract DiamondRegistrarController is Initializable, OwnableUpgradeable, ValueG
     mapping(address => bytes) public names;
 
     /**
-     * mapping between the hash of the name and the address that owns it.abi
+     * mapping between the hash of the name and the address that owns it
      */
     mapping(bytes32 => address) public namesReverse;
 
-    /**
-     * mapping of the costs for setting the name.
-     */
-    mapping(address => uint256) public costs;
+    mapping(address => uint256) public activations;
 
-    IDiamondNames public diamondNames;
+    IDMDNames public diamondNames;
+
+    IENS public registry;
+
+    IResolver public resolver;
 
     /**
-     * funds are sent to this reinsert pot.
+     * Minting/activation fees are sent to the reinsert pot.
      */
     address public reinsertPotAddress;
 
     /**
-     * maximum costs for setting the name.
+     * current cost for setting the name.
      */
     uint256 public mintingFee;
 
-    error InvalidAddress();
     error InvalidMintingFee(uint256 want, uint256 sent);
     error InvalidName();
     error NotAvailable();
+    error RegistrarInactive();
 
-    // event AddressChanged(address indexed node, uint coinType, bytes newAddress);
-    event NameChanged(address indexed node, string name);
+    event NameRegistered(address indexed node, bytes32 indexed nameHash, string name);
 
     event SetMintingFee(uint256 indexed value);
+
+    modifier activeRegistrar() {
+        if (registry.owner(DMD_NODE) != address(this)) {
+            revert RegistrarInactive();
+        }
+
+        _;
+    }
 
     /**
      * @custom:oz-upgrades-unsafe-allow constructor
@@ -66,19 +84,31 @@ contract DiamondRegistrarController is Initializable, OwnableUpgradeable, ValueG
     function initialize(
         address _initialOwner,
         address _reinsertPotAddress,
-        address _diamondNames
+        address _diamondNames,
+        address _registry,
+        address _resolver
     ) external initializer {
         if (_reinsertPotAddress == address(0)) {
-            revert InvalidAddress();
+            revert Errors.InvalidReinsertPotAddress();
         }
 
         if (_diamondNames == address(0)) {
-            revert InvalidAddress();
+            revert Errors.InvalidNamesContract();
+        }
+
+        if (_registry == address(0)) {
+            revert Errors.InvalidRegistry();
+        }
+
+        if (_resolver == address(0)) {
+            revert Errors.InvalidResolver();
         }
 
         __Ownable_init(_initialOwner);
 
-        diamondNames = IDiamondNames(_diamondNames);
+        diamondNames = IDMDNames(_diamondNames);
+        registry = IENS(_registry);
+        resolver = IResolver(_resolver);
         reinsertPotAddress = _reinsertPotAddress;
 
         mintingFee = DEFAULT_MINTING_FEE;
@@ -94,7 +124,7 @@ contract DiamondRegistrarController is Initializable, OwnableUpgradeable, ValueG
         emit SetMintingFee(_value);
     }
 
-    function register(string calldata _name) external payable {
+    function register(string calldata _name) external payable activeRegistrar {
         if (msg.value != mintingFee) {
             revert InvalidMintingFee(mintingFee, msg.value);
         }
@@ -107,8 +137,9 @@ contract DiamondRegistrarController is Initializable, OwnableUpgradeable, ValueG
             revert NotAvailable();
         }
 
-        bytes32 nameHash = getHashOfName(_name);
-        uint256 nameId = uint256(nameHash);
+        bytes32 labelHash = getHashOfName(_name);
+        uint256 labelId = uint256(labelHash);
+        bytes32 node = keccak256(abi.encodePacked(DMD_NODE, labelHash));
 
         bytes storage originalString = names[msg.sender];
 
@@ -119,14 +150,22 @@ contract DiamondRegistrarController is Initializable, OwnableUpgradeable, ValueG
         }
 
         names[msg.sender] = bytes(_name);
-        namesReverse[nameHash] = msg.sender;
+        namesReverse[labelHash] = msg.sender;
+
+        uint256 expirationTimestamp = DateTimeLib.addYears(block.timestamp, EXPIRATION_TIME_YEARS);
+
+        diamondNames.register(labelId, msg.sender, expirationTimestamp);
+
+        registry.setSubnodeRecord(DMD_NODE, labelHash, address(this), address(resolver), 0);
+        resolver.setAddr(node, msg.sender);
+        registry.setOwner(node, msg.sender);
 
         TransferUtils.transferNative(reinsertPotAddress, msg.value);
 
-        diamondNames.mint(msg.sender, nameId);
-
-        emit NameChanged(msg.sender, _name);
+        emit NameRegistered(msg.sender, labelHash, _name);
     }
+
+    function activate() external activeRegistrar { }
 
     function getAddressOfName(string calldata _name) external view returns (address) {
         bytes32 nameHash = getHashOfName(_name);
@@ -137,28 +176,11 @@ contract DiamondRegistrarController is Initializable, OwnableUpgradeable, ValueG
         return string(names[node]);
     }
 
-    /**
-     * ENS compatible function to get the address of a node
-     * @param node The address of the node
-     */
-    function addr(bytes32 node) public view returns (address) {
-        return namesReverse[node];
-    }
-
     function available(string calldata _name) public view returns (bool) {
         bytes32 nameHash = getHashOfName(_name);
 
         // this could also be a hash collison. bad luck, we don't care about this case.
         return namesReverse[nameHash] == address(0);
-    }
-
-    function getSetNameCost(address node) public view returns (uint256) {
-        uint256 cost = costs[node];
-        if (cost > 0) {
-            return cost;
-        } else {
-            return 1 ether; // , "Fee is exactly 1 DMD");
-        }
     }
 
     function getHashOfName(string calldata _name) public pure returns (bytes32) {
@@ -199,6 +221,8 @@ contract DiamondRegistrarController is Initializable, OwnableUpgradeable, ValueG
 
         return true;
     }
+
+    function _activate(string memory _name) private { }
 
     function _mintingFeeAllowedValues() private pure returns (uint256[] memory) {
         uint256[] memory values = new uint256[](10);

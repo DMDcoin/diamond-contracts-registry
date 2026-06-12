@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+pragma solidity 0.8.25;
+
+library Errors {
+    error Unauthorised();
+
+    error InvalidReinsertPotAddress();
+
+    error InvalidRegistry();
+
+    error InvalidResolver();
+
+    error InvalidNamesContract();
+}
