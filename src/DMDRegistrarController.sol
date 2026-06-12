@@ -13,13 +13,12 @@ import { IENS } from "./interface/IENS.sol";
 import { IResolver } from "./interface/IResolver.sol";
 import { ByteUtils } from "./lib/ByteUtils.sol";
 import { Errors } from "./lib/Errors.sol";
+import { NameBlocklist } from "./lib/NameBlocklist.sol";
+import { NameUtils } from "./lib/NameUtils.sol";
 import { TransferUtils } from "./lib/TransferUtils.sol";
 
-contract DMDRegistrarController is Initializable, OwnableUpgradeable, ValueGuards {
+contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlocklist, ValueGuards {
     using ByteUtils for bytes1;
-
-    // keccak256(abi.encodePacked(bytes32(0), keccak256("dmd")))
-    bytes32 public constant DMD_NODE = 0x9904bf4b5751e3b6a8b75d14c49424160de1a8fa8a90fd5c9fccdeac0503e612;
 
     uint256 public constant MIN_NAME_LENGTH = 2;
     uint256 public constant MAX_NAME_LENGHT = 63;
@@ -64,13 +63,12 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, ValueGuard
 
     event NameRegistered(address indexed node, bytes32 indexed nameHash, string name);
 
+    event NameReleased(address indexed owner, bytes32 indexed nameHash, string name);
+
     event SetMintingFee(uint256 indexed value);
 
     modifier activeRegistrar() {
-        if (registry.owner(DMD_NODE) != address(this)) {
-            revert RegistrarInactive();
-        }
-
+        _checkRegistrar();
         _;
     }
 
@@ -105,6 +103,7 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, ValueGuard
         }
 
         __Ownable_init(_initialOwner);
+        __NameBlocklist_init();
 
         diamondNames = IDMDNames(_diamondNames);
         registry = IENS(_registry);
@@ -137,16 +136,18 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, ValueGuard
             revert NotAvailable();
         }
 
-        bytes32 labelHash = getHashOfName(_name);
-        uint256 labelId = uint256(labelHash);
-        bytes32 node = keccak256(abi.encodePacked(DMD_NODE, labelHash));
+        if (isNameBlocked(_name)) {
+            revert NameBlocked(_name);
+        }
+
+        bytes32 labelHash = NameUtils.nameHash(_name);
+        bytes32 node = NameUtils.node(labelHash);
+        uint256 tokenId = uint256(labelHash);
 
         bytes storage originalString = names[msg.sender];
 
-        // if there is already a name stored, we can delete it.
         if (originalString.length != 0) {
-            bytes32 original_nameHash = getHashOfNameBytes(originalString);
-            delete namesReverse[original_nameHash];
+            _releaseName(msg.sender, originalString);
         }
 
         names[msg.sender] = bytes(_name);
@@ -154,9 +155,9 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, ValueGuard
 
         uint256 expirationTimestamp = DateTimeLib.addYears(block.timestamp, EXPIRATION_TIME_YEARS);
 
-        diamondNames.register(labelId, msg.sender, expirationTimestamp);
+        diamondNames.register(tokenId, msg.sender, expirationTimestamp);
 
-        registry.setSubnodeRecord(DMD_NODE, labelHash, address(this), address(resolver), 0);
+        registry.setSubnodeRecord(NameUtils.DMD_NODE, labelHash, address(this), address(resolver), 0);
         resolver.setAddr(node, msg.sender);
         registry.setOwner(node, msg.sender);
 
@@ -165,10 +166,11 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, ValueGuard
         emit NameRegistered(msg.sender, labelHash, _name);
     }
 
-    function activate() external activeRegistrar { }
+    function activate() external payable activeRegistrar { }
 
     function getAddressOfName(string calldata _name) external view returns (address) {
-        bytes32 nameHash = getHashOfName(_name);
+        bytes32 nameHash = NameUtils.nameHash(_name);
+
         return namesReverse[nameHash];
     }
 
@@ -177,21 +179,21 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, ValueGuard
     }
 
     function available(string calldata _name) public view returns (bool) {
-        bytes32 nameHash = getHashOfName(_name);
+        bytes32 nameHash = NameUtils.nameHash(_name);
 
         // this could also be a hash collison. bad luck, we don't care about this case.
         return namesReverse[nameHash] == address(0);
     }
 
-    function getHashOfName(string calldata _name) public pure returns (bytes32) {
-        return keccak256(abi.encodePacked(_name));
+    function getHashOfName(string memory _name) public pure returns (bytes32) {
+        return NameUtils.nameHash(_name);
     }
 
     function getHashOfNameBytes(bytes memory _name) public pure returns (bytes32) {
-        return keccak256(abi.encodePacked(_name));
+        return NameUtils.nameHash(_name);
     }
 
-    function valid(string calldata _name) public pure returns (bool) {
+    function valid(string memory _name) public pure returns (bool) {
         bytes memory nameBytes = bytes(_name);
         uint256 byteLength = nameBytes.length;
 
@@ -223,6 +225,28 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, ValueGuard
     }
 
     function _activate(string memory _name) private { }
+
+    function _releaseName(address _owner, bytes memory _name) private {
+        bytes32 labelHash = NameUtils.nameHash(_name);
+        bytes32 node = NameUtils.node(labelHash);
+
+        delete names[_owner];
+        delete namesReverse[labelHash];
+
+        registry.setSubnodeOwner(NameUtils.DMD_NODE, labelHash, address(this));
+        resolver.setAddr(node, address(0));
+        registry.setSubnodeRecord(NameUtils.DMD_NODE, labelHash, address(0), address(0), 0);
+
+        diamondNames.burn(uint256(labelHash));
+
+        emit NameReleased(_owner, labelHash, string(_name));
+    }
+
+    function _checkRegistrar() private view {
+        if (registry.owner(NameUtils.DMD_NODE) != address(this)) {
+            revert RegistrarInactive();
+        }
+    }
 
     function _mintingFeeAllowedValues() private pure returns (uint256[] memory) {
         uint256[] memory values = new uint256[](10);

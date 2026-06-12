@@ -21,9 +21,7 @@ abstract contract Controllable is Initializable, OwnableUpgradeable {
     error UnauthorizedController();
 
     modifier onlyController() {
-        if (!isController(msg.sender)) {
-            revert UnauthorizedController();
-        }
+        _checkController();
         _;
     }
 
@@ -45,6 +43,12 @@ abstract contract Controllable is Initializable, OwnableUpgradeable {
         ControllableStorage storage $ = _getControllableStorage();
 
         return $._controllers[caller];
+    }
+
+    function _checkController() internal view {
+        if (!isController(msg.sender)) {
+            revert UnauthorizedController();
+        }
     }
 
     function _getControllableStorage() private pure returns (ControllableStorage storage $) {

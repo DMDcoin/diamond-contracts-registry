@@ -16,6 +16,8 @@ import { DMDRegistry } from "src/DMDRegistry.sol";
 import { DMDResolver } from "src/DMDResolver.sol";
 import { IAddrResolver } from "src/interface/IAddrResolver.sol";
 import { Errors } from "src/lib/Errors.sol";
+import { NameBlocklist } from "src/lib/NameBlocklist.sol";
+import { NameUtils } from "src/lib/NameUtils.sol";
 
 contract DMDRegistrarControllerTest is Test {
     struct NameValidationTestCase {
@@ -93,7 +95,7 @@ contract DMDRegistrarControllerTest is Test {
     }
 
     function _nodeOf(string memory name) internal view returns (bytes32) {
-        return keccak256(abi.encodePacked(registrar.DMD_NODE(), keccak256(bytes(name))));
+        return keccak256(abi.encodePacked(NameUtils.DMD_NODE, keccak256(bytes(name))));
     }
 
     function _deployUninitializedController() internal returns (DMDRegistrarController) {
@@ -249,6 +251,46 @@ contract DMDRegistrarControllerTest is Test {
     function test_Resolver_SupportsAddrInterface() public view {
         assertTrue(resolver.supportsInterface(0x01ffc9a7)); // ERC-165
         assertTrue(resolver.supportsInterface(0x3b3b57de)); // addr(bytes32)
+    }
+
+    function test_Register_BlockedName_Reverts() public {
+        string memory name = "blocked-name";
+
+        vm.prank(owner);
+        registrar.setNameBlocked(name, true);
+
+        vm.deal(alice, mintingFee);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(NameBlocklist.NameBlocked.selector, name));
+        registrar.register{ value: mintingFee }(name);
+    }
+
+    function test_Register_UnblockedName_Succeeds() public {
+        string memory name = "blocked-name";
+
+        vm.prank(owner);
+        registrar.setNameBlocked(name, true);
+
+        vm.prank(owner);
+        registrar.setNameBlocked(name, false);
+
+        _registerName(alice, name);
+
+        assertEq(registrar.name(alice), name);
+    }
+
+    function test_Register_BlockingExistingName_DoesNotAffectOwner() public {
+        string memory name = "alice";
+        _registerName(alice, name);
+
+        vm.prank(owner);
+        registrar.setNameBlocked(name, true);
+
+        // existing registration is unaffected — only future registration is prevented
+        bytes32 node = _nodeOf(name);
+        assertEq(registrar.name(alice), name);
+        assertEq(registry.owner(node), alice);
+        assertEq(resolver.addr(node), alice);
     }
 
     function test_Register_NameAlreadyTaken_Reverts() public {

@@ -35,6 +35,10 @@ contract DMDNames is OwnableUpgradeable, ERC721Upgradeable, Controllable {
         _mint(owner, id);
     }
 
+    function burn(uint256 id) external onlyController {
+        _burn(id);
+    }
+
     function available(uint256 id) public view returns (bool) {
         return _expires[id] < block.timestamp;
     }

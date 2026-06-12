@@ -3,4 +3,6 @@ pragma solidity 0.8.25;
 
 interface IDMDNames {
     function register(uint256 id, address owner, uint256 expiration) external;
+
+    function burn(uint256 id) external;
 }
