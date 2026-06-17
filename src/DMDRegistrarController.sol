@@ -33,6 +33,9 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
     uint256 public constant MAX_ACTIVATION_FEE_NOMINATOR = 3;
     uint256 public constant ACTIVATION_FEE_DENOMINATOR = 10;
 
+    uint256 public constant TRANSFER_FEE_NOMINATOR = 10; // 10%
+    uint256 public constant TRANSFER_FEE_DENOMINATOR = 100;
+
     mapping(address => bytes) public names;
 
     mapping(address => uint256) public activations;
@@ -62,11 +65,13 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
     error InvalidActivationFee(uint256 want, uint256 sent);
     error AlreadyActive();
 
-    event NameRegistered(address indexed node, bytes32 indexed nameHash, string name);
+    event NameRegistered(address indexed node, bytes32 indexed labelHash, uint256 indexed expiration, string name);
 
-    event NameDeactivated(address indexed owner, bytes32 indexed nameHash, string name);
+    event NameActivated(address indexed owner, bytes32 indexed labelHash, string name);
 
-    event NameActivated(address indexed owner, bytes32 indexed nameHash, string name);
+    event NameDeactivated(address indexed owner, bytes32 indexed labelHash, string name);
+
+    event NameRenewed(address indexed owner, bytes32 indexed labelHash, uint256 indexed expiration, string name);
 
     event SetMintingFee(uint256 indexed value);
 
@@ -121,9 +126,30 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
     }
 
     function setMintingFee(uint256 _value) public onlyOwner withinAllowedRange(_value) {
+        uint256 transferFee = _value * TRANSFER_FEE_NOMINATOR / TRANSFER_FEE_DENOMINATOR;
+
         mintingFee = _value;
 
         emit SetMintingFee(_value);
+
+        diamondNames.setTransferFee(transferFee);
+    }
+
+    function blockName(string calldata _name, address _owner) external activeRegistrar onlyOwner {
+        bytes32 node = NameUtils.nodeHash(_name);
+
+        address nodeOwner = registry.owner(node);
+        address registrant = nodeOwner == address(this) ? address(0) : nodeOwner;
+
+        if (registrant != _owner) {
+            revert NameOwnerMismatch(registrant, _owner);
+        }
+
+        if (registrant != address(0)) {
+            _deactivateName(registrant, bytes(_name));
+        }
+
+        _setNameBlocked(_name, true);
     }
 
     function register(string calldata _name) external payable activeRegistrar {
@@ -156,7 +182,7 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
 
         TransferUtils.transferNative(reinsertPotAddress, msg.value);
 
-        emit NameRegistered(msg.sender, labelHash, _name);
+        emit NameRegistered(msg.sender, labelHash, expirationTimestamp, _name);
     }
 
     function activate(string calldata _name) external payable activeRegistrar {
@@ -188,24 +214,19 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
         }
     }
 
-    function renew() external payable activeRegistrar { }
-
-    function blockName(string calldata _name, address _owner) external activeRegistrar onlyOwner {
+    function renew(string calldata _name) external activeRegistrar {
         bytes32 labelHash = NameUtils.labelHash(_name);
-        bytes32 node = NameUtils.nodeHash(labelHash);
+        uint256 tokenId = uint256(labelHash);
 
-        address nodeOwner = registry.owner(node);
-        address registrant = nodeOwner == address(this) ? address(0) : nodeOwner;
-
-        if (registrant != _owner) {
-            revert NameOwnerMismatch(registrant, _owner);
+        if (diamondNames.ownerOf(tokenId) != msg.sender) {
+            revert NotNameOwner();
         }
 
-        if (registrant != address(0)) {
-            _deactivateName(registrant, bytes(_name));
-        }
+        uint256 expirationTimestamp = DateTimeLib.addYears(block.timestamp, EXPIRATION_TIME_YEARS);
 
-        _setNameBlocked(_name, true);
+        diamondNames.renew(tokenId, expirationTimestamp);
+
+        emit NameRenewed(msg.sender, labelHash, expirationTimestamp, _name);
     }
 
     function available(string calldata _name) public view returns (bool) {
