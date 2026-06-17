@@ -5,12 +5,14 @@ import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/O
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 import { DateTimeLib } from "solady/utils/DateTimeLib.sol";
+import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 
 import { ValueGuards } from "diamond-contracts-core/lib/ValueGuards.sol";
 
 import { IDMDNames } from "./interface/IDMDNames.sol";
 import { IENS } from "./interface/IENS.sol";
 import { IResolver } from "./interface/IResolver.sol";
+import { AddressUtils } from "./lib/AddressUtils.sol";
 import { ByteUtils } from "./lib/ByteUtils.sol";
 import { Errors } from "./lib/Errors.sol";
 import { NameBlocklist } from "./lib/NameBlocklist.sol";
@@ -28,15 +30,10 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
 
     uint256 public constant EXPIRATION_TIME_YEARS = 10;
 
-    /**
-     * mapping between address and the current name.
-     */
-    mapping(address => bytes) public names;
+    uint256 public constant MAX_ACTIVATION_FEE_NOMINATOR = 3;
+    uint256 public constant ACTIVATION_FEE_DENOMINATOR = 10;
 
-    /**
-     * mapping between the hash of the name and the address that owns it
-     */
-    mapping(bytes32 => address) public namesReverse;
+    mapping(address => bytes) public names;
 
     mapping(address => uint256) public activations;
 
@@ -60,10 +57,16 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
     error InvalidName();
     error NotAvailable();
     error RegistrarInactive();
+    error NameOwnerMismatch(address expected, address actual);
+    error NotNameOwner();
+    error InvalidActivationFee(uint256 want, uint256 sent);
+    error AlreadyActive();
 
     event NameRegistered(address indexed node, bytes32 indexed nameHash, string name);
 
-    event NameReleased(address indexed owner, bytes32 indexed nameHash, string name);
+    event NameDeactivated(address indexed owner, bytes32 indexed nameHash, string name);
+
+    event NameActivated(address indexed owner, bytes32 indexed nameHash, string name);
 
     event SetMintingFee(uint256 indexed value);
 
@@ -140,57 +143,91 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
             revert NameBlocked(_name);
         }
 
-        bytes32 labelHash = NameUtils.nameHash(_name);
-        bytes32 node = NameUtils.node(labelHash);
+        bytes32 labelHash = NameUtils.labelHash(_name);
         uint256 tokenId = uint256(labelHash);
-
-        bytes storage originalString = names[msg.sender];
-
-        if (originalString.length != 0) {
-            _releaseName(msg.sender, originalString);
-        }
-
-        names[msg.sender] = bytes(_name);
-        namesReverse[labelHash] = msg.sender;
 
         uint256 expirationTimestamp = DateTimeLib.addYears(block.timestamp, EXPIRATION_TIME_YEARS);
 
         diamondNames.register(tokenId, msg.sender, expirationTimestamp);
 
-        registry.setSubnodeRecord(NameUtils.DMD_NODE, labelHash, address(this), address(resolver), 0);
-        resolver.setAddr(node, msg.sender);
-        registry.setOwner(node, msg.sender);
+        if (names[msg.sender].length == 0) {
+            _activate(msg.sender, bytes(_name));
+        }
 
         TransferUtils.transferNative(reinsertPotAddress, msg.value);
 
         emit NameRegistered(msg.sender, labelHash, _name);
     }
 
-    function activate() external payable activeRegistrar { }
+    function activate(string calldata _name) external payable activeRegistrar {
+        bytes32 labelHash = NameUtils.labelHash(_name);
+        uint256 tokenId = uint256(labelHash);
 
-    function getAddressOfName(string calldata _name) external view returns (address) {
-        bytes32 nameHash = NameUtils.nameHash(_name);
+        if (diamondNames.ownerOf(tokenId) != msg.sender) {
+            revert NotNameOwner();
+        }
 
-        return namesReverse[nameHash];
+        if (isNameBlocked(_name)) {
+            revert NameBlocked(_name);
+        }
+
+        bytes memory current = names[msg.sender];
+        if (current.length != 0 && NameUtils.labelHash(current) == labelHash) {
+            revert AlreadyActive();
+        }
+
+        uint256 fee = getActivationFee(msg.sender);
+        if (msg.value != fee) {
+            revert InvalidActivationFee(fee, msg.value);
+        }
+
+        _activate(msg.sender, bytes(_name));
+
+        if (msg.value != 0) {
+            TransferUtils.transferNative(reinsertPotAddress, msg.value);
+        }
     }
 
-    function name(address node) external view returns (string memory) {
-        return string(names[node]);
+    function renew() external payable activeRegistrar { }
+
+    function blockName(string calldata _name, address _owner) external activeRegistrar onlyOwner {
+        bytes32 labelHash = NameUtils.labelHash(_name);
+        bytes32 node = NameUtils.nodeHash(labelHash);
+
+        address nodeOwner = registry.owner(node);
+        address registrant = nodeOwner == address(this) ? address(0) : nodeOwner;
+
+        if (registrant != _owner) {
+            revert NameOwnerMismatch(registrant, _owner);
+        }
+
+        if (registrant != address(0)) {
+            _deactivateName(registrant, bytes(_name));
+        }
+
+        _setNameBlocked(_name, true);
     }
 
     function available(string calldata _name) public view returns (bool) {
-        bytes32 nameHash = NameUtils.nameHash(_name);
+        bytes32 labelHash = NameUtils.labelHash(_name);
 
-        // this could also be a hash collison. bad luck, we don't care about this case.
-        return namesReverse[nameHash] == address(0);
+        return diamondNames.available(uint256(labelHash));
+    }
+
+    function getActivationFee(address _who) public view returns (uint256) {
+        // Fee scales 10% per activation, capped at 30% of the minting fee:
+        // 0 -> free, 1 -> 10%, 2 -> 20%, 3+ -> 30%.
+        uint256 nominator = FixedPointMathLib.min(activations[_who], MAX_ACTIVATION_FEE_NOMINATOR);
+
+        return mintingFee * nominator / ACTIVATION_FEE_DENOMINATOR;
     }
 
     function getHashOfName(string memory _name) public pure returns (bytes32) {
-        return NameUtils.nameHash(_name);
+        return NameUtils.labelHash(_name);
     }
 
     function getHashOfNameBytes(bytes memory _name) public pure returns (bytes32) {
-        return NameUtils.nameHash(_name);
+        return NameUtils.labelHash(_name);
     }
 
     function valid(string memory _name) public pure returns (bool) {
@@ -224,22 +261,52 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
         return true;
     }
 
-    function _activate(string memory _name) private { }
+    function _activate(address _user, bytes memory _name) private {
+        bytes32 labelHash = NameUtils.labelHash(_name);
+        bytes32 node = NameUtils.nodeHash(labelHash);
 
-    function _releaseName(address _owner, bytes memory _name) private {
-        bytes32 labelHash = NameUtils.nameHash(_name);
-        bytes32 node = NameUtils.node(labelHash);
+        bytes memory current = names[_user];
+        if (current.length != 0) {
+            _deactivateName(_user, current);
+        }
 
-        delete names[_owner];
-        delete namesReverse[labelHash];
+        names[_user] = _name;
+
+        // Forward resolution: name -> address
+        registry.setSubnodeRecord(NameUtils.DMD_NODE, labelHash, address(this), address(resolver), 0);
+        resolver.setAddr(node, _user);
+        registry.setOwner(node, _user);
+
+        // Reverse resolution: address -> name
+        bytes32 reverseLabel = AddressUtils.sha3HexAddress(_user);
+        bytes32 reverseNode = AddressUtils.reverseNode(_user);
+        registry.setSubnodeRecord(AddressUtils.ADDR_REVERSE_NODE, reverseLabel, address(this), address(resolver), 0);
+        resolver.setName(reverseNode, _fullName(_name));
+
+        activations[_user] += 1;
+
+        emit NameActivated(_user, labelHash, string(_name));
+    }
+
+    function _deactivateName(address _owner, bytes memory _name) private {
+        bytes32 labelHash = NameUtils.labelHash(_name);
+        bytes32 node = NameUtils.nodeHash(labelHash);
 
         registry.setSubnodeOwner(NameUtils.DMD_NODE, labelHash, address(this));
         resolver.setAddr(node, address(0));
-        registry.setSubnodeRecord(NameUtils.DMD_NODE, labelHash, address(0), address(0), 0);
+        registry.setResolver(node, address(0));
 
-        diamondNames.burn(uint256(labelHash));
+        bytes32 reverseNode = AddressUtils.reverseNode(_owner);
+        resolver.setName(reverseNode, "");
+        registry.setResolver(reverseNode, address(0));
 
-        emit NameReleased(_owner, labelHash, string(_name));
+        delete names[_owner];
+
+        emit NameDeactivated(_owner, labelHash, string(_name));
+    }
+
+    function _fullName(bytes memory _label) private pure returns (string memory) {
+        return string(abi.encodePacked(_label, ".dmd"));
     }
 
     function _checkRegistrar() private view {

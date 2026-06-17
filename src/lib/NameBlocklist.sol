@@ -41,13 +41,13 @@ abstract contract NameBlocklist is Initializable, OwnableUpgradeable {
     function isNameBlocked(string memory _name) public view returns (bool) {
         NameBlocklistStorage storage $ = _getNameBlocklistStorage();
 
-        return $._blocklist[NameUtils.nameHash(_name)];
+        return $._blocklist[NameUtils.labelHash(_name)];
     }
 
     function _setNameBlocked(string calldata _name, bool _blocked) internal {
         NameBlocklistStorage storage $ = _getNameBlocklistStorage();
 
-        bytes32 labelHash = NameUtils.nameHash(_name);
+        bytes32 labelHash = NameUtils.labelHash(_name);
         $._blocklist[labelHash] = _blocked;
 
         emit NameBlockedSet(labelHash, _name, _blocked);

@@ -21,6 +21,9 @@ contract Deploy is Script {
 
     bytes32 public constant ROOT_NODE = bytes32(0);
     bytes32 public constant DMD_LABEL = keccak256("dmd");
+    bytes32 public constant REVERSE_LABEL = keccak256("reverse");
+    bytes32 public constant ADDR_LABEL = keccak256("addr");
+    bytes32 public constant REVERSE_NODE = keccak256(abi.encodePacked(ROOT_NODE, REVERSE_LABEL));
 
     function run() external {
         address initialOwner = vm.envAddress("INITIAL_OWNER_ADDRESS"); // root owner
@@ -81,7 +84,12 @@ contract Deploy is Script {
 
         names.setController(address(controller), true);
 
+        // Setup .dmd TLD
         registry.setSubnodeOwner(ROOT_NODE, DMD_LABEL, address(controller));
+
+        // Setup addr.reverse
+        registry.setSubnodeOwner(ROOT_NODE, REVERSE_LABEL, cfg.initialOwner);
+        registry.setSubnodeOwner(REVERSE_NODE, ADDR_LABEL, address(controller));
 
         if (release) {
             registry.setOwner(ROOT_NODE, cfg.dao);

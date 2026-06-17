@@ -6,15 +6,19 @@ import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/I
 import { ERC165Upgradeable } from "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
 import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
+import { IAddrResolver } from "./interface/IAddrResolver.sol";
 import { IENS } from "./interface/IENS.sol";
-import { IAddrResolver, IResolver } from "./interface/IResolver.sol";
+import { INameResolver } from "./interface/INameResolver.sol";
+import { IResolver } from "./interface/IResolver.sol";
 
 import { Errors } from "./lib/Errors.sol";
 
 contract DMDResolver is Initializable, ERC165Upgradeable, IResolver {
     IENS public registry;
 
-    mapping(bytes32 => address) addresses;
+    mapping(bytes32 => address) public addresses;
+
+    mapping(bytes32 => string) public names;
 
     modifier authorised(bytes32 node) {
         address owner = registry.owner(node);
@@ -48,8 +52,18 @@ contract DMDResolver is Initializable, ERC165Upgradeable, IResolver {
         emit AddrChanged(node, a);
     }
 
+    function setName(bytes32 node, string calldata newName) external authorised(node) {
+        names[node] = newName;
+
+        emit NameChanged(node, newName);
+    }
+
     function addr(bytes32 node) external view override returns (address payable) {
         return payable(addresses[node]);
+    }
+
+    function name(bytes32 node) external view override returns (string memory) {
+        return names[node];
     }
 
     function supportsInterface(bytes4 interfaceId)
@@ -59,6 +73,7 @@ contract DMDResolver is Initializable, ERC165Upgradeable, IResolver {
         override(ERC165Upgradeable, IERC165)
         returns (bool)
     {
-        return interfaceId == type(IAddrResolver).interfaceId || super.supportsInterface(interfaceId);
+        return interfaceId == type(IAddrResolver).interfaceId || interfaceId == type(INameResolver).interfaceId
+            || super.supportsInterface(interfaceId);
     }
 }

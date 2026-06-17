@@ -4,6 +4,8 @@ pragma solidity 0.8.25;
 interface IAddrResolver {
     event AddrChanged(bytes32 indexed node, address a);
 
+    function setAddr(bytes32 node, address addr) external;
+
     /**
      * Returns the address associated with an ENS node.
      * @param node The ENS node to query.

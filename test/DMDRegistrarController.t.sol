@@ -15,6 +15,8 @@ import { DMDRegistrarController } from "src/DMDRegistrarController.sol";
 import { DMDRegistry } from "src/DMDRegistry.sol";
 import { DMDResolver } from "src/DMDResolver.sol";
 import { IAddrResolver } from "src/interface/IAddrResolver.sol";
+import { INameResolver } from "src/interface/INameResolver.sol";
+import { AddressUtils } from "src/lib/AddressUtils.sol";
 import { Errors } from "src/lib/Errors.sol";
 import { NameBlocklist } from "src/lib/NameBlocklist.sol";
 import { NameUtils } from "src/lib/NameUtils.sol";
@@ -39,6 +41,9 @@ contract DMDRegistrarControllerTest is Test {
 
     bytes32 public constant ROOT_NODE = bytes32(0);
     bytes32 public constant DMD_LABEL = keccak256("dmd");
+    bytes32 public constant REVERSE_LABEL = keccak256("reverse");
+    bytes32 public constant ADDR_LABEL = keccak256("addr");
+    bytes32 public constant REVERSE_NODE = keccak256(abi.encodePacked(ROOT_NODE, REVERSE_LABEL));
 
     address public owner;
     address public alice;
@@ -85,6 +90,13 @@ contract DMDRegistrarControllerTest is Test {
 
         vm.prank(owner);
         registry.setSubnodeOwner(ROOT_NODE, DMD_LABEL, address(registrar));
+
+        // Bootstrap addr.reverse so the controller can write ENS reverse records.
+        vm.prank(owner);
+        registry.setSubnodeOwner(ROOT_NODE, REVERSE_LABEL, owner);
+
+        vm.prank(owner);
+        registry.setSubnodeOwner(REVERSE_NODE, ADDR_LABEL, address(registrar));
     }
 
     function _registerName(address user, string memory name) internal {
@@ -96,6 +108,10 @@ contract DMDRegistrarControllerTest is Test {
 
     function _nodeOf(string memory name) internal view returns (bytes32) {
         return keccak256(abi.encodePacked(NameUtils.DMD_NODE, keccak256(bytes(name))));
+    }
+
+    function _reverseNodeOf(address addr) internal pure returns (bytes32) {
+        return AddressUtils.reverseNode(addr);
     }
 
     function _deployUninitializedController() internal returns (DMDRegistrarController) {
@@ -212,7 +228,7 @@ contract DMDRegistrarControllerTest is Test {
 
         _registerName(alice, name);
 
-        assertEq(registrar.name(alice), name);
+        assertEq(string(registrar.names(alice)), name);
         assertFalse(registrar.available(name));
     }
 
@@ -276,7 +292,7 @@ contract DMDRegistrarControllerTest is Test {
 
         _registerName(alice, name);
 
-        assertEq(registrar.name(alice), name);
+        assertEq(string(registrar.names(alice)), name);
     }
 
     function test_Register_BlockingExistingName_DoesNotAffectOwner() public {
@@ -288,7 +304,7 @@ contract DMDRegistrarControllerTest is Test {
 
         // existing registration is unaffected — only future registration is prevented
         bytes32 node = _nodeOf(name);
-        assertEq(registrar.name(alice), name);
+        assertEq(string(registrar.names(alice)), name);
         assertEq(registry.owner(node), alice);
         assertEq(resolver.addr(node), alice);
     }
@@ -309,11 +325,54 @@ contract DMDRegistrarControllerTest is Test {
         registrar.register{ value: mintingFee }("-alice");
     }
 
-    function test_GetAddressOfName_ReturnsOwner() public {
-        string memory name = "just-another-name";
+    function test_Resolver_SupportsNameInterface() public view {
+        assertTrue(resolver.supportsInterface(0x691f3431)); // name(bytes32)
+    }
+
+    function test_Register_ReverseResolution_ENSPath() public {
+        string memory name = "alice";
         _registerName(alice, name);
 
-        assertEq(registrar.getAddressOfName(name), alice);
+        bytes32 reverseNode = _reverseNodeOf(alice);
+
+        address resolverAddr = registry.resolver(reverseNode);
+        assertEq(resolverAddr, address(resolver));
+
+        assertEq(INameResolver(resolverAddr).name(reverseNode), "alice.dmd");
+    }
+
+    function test_Activate_SwitchPrimary_UpdatesReverseRecord() public {
+        _registerName(alice, "alice");
+
+        // alice owns a second name and activates it (tier 1 -> 10% of minting fee)
+        vm.deal(alice, mintingFee);
+        vm.prank(alice);
+        registrar.register{ value: mintingFee }("alice2");
+
+        uint256 activationFee = registrar.getActivationFee(alice);
+        vm.deal(alice, activationFee);
+        vm.prank(alice);
+        registrar.activate{ value: activationFee }("alice2");
+
+        bytes32 reverseNode = _reverseNodeOf(alice);
+        assertEq(resolver.name(reverseNode), "alice2.dmd");
+
+        // forward record of the new primary points back at alice
+        assertEq(resolver.addr(_nodeOf("alice2")), alice);
+        // the previously active name is no longer wired to alice
+        assertEq(registry.owner(_nodeOf("alice")), address(registrar));
+    }
+
+    function test_BlockName_ClearsReverseRecord() public {
+        string memory name = "alice";
+        _registerName(alice, name);
+
+        vm.prank(owner);
+        registrar.blockName(name, alice);
+
+        bytes32 reverseNode = _reverseNodeOf(alice);
+        assertEq(resolver.name(reverseNode), "");
+        assertEq(registry.resolver(reverseNode), address(0));
     }
 
     function test_SetMintingFee() public {
