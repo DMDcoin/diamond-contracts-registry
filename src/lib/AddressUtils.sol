@@ -23,7 +23,7 @@ library AddressUtils {
      *         input address.
      */
     function sha3HexAddress(address addr) internal pure returns (bytes32 ret) {
-        assembly {
+        assembly ("memory-safe") {
             for {
                 let i := 40
             } gt(i, 0) { } {

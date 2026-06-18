@@ -15,7 +15,7 @@ abstract contract NameBlocklist is Initializable, OwnableUpgradeable {
     }
 
     // keccak256(abi.encode(uint256(keccak256("dmd.storage.NameBlocklist")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant NameBlocklistStorageLocation =
+    bytes32 private constant NAME_BLOCKLIST_STORAGE_LOCATION =
         0x698f631cd62c2499a873e75c9c22c0e53d3435a34fb25ebf1fc1d8de9ceb3300;
 
     error NameBlocked(string name);
@@ -55,7 +55,7 @@ abstract contract NameBlocklist is Initializable, OwnableUpgradeable {
 
     function _getNameBlocklistStorage() private pure returns (NameBlocklistStorage storage $) {
         assembly {
-            $.slot := NameBlocklistStorageLocation
+            $.slot := NAME_BLOCKLIST_STORAGE_LOCATION
         }
     }
 }

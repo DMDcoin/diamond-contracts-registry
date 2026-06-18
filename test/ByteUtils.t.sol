@@ -5,6 +5,8 @@ import { Test } from "forge-std/Test.sol";
 
 import { MockByteUtils } from "../src/mocks/MockByteUtils.sol";
 
+// forge-lint: disable-start(unsafe-typecast)
+
 contract ByteUtilsTest is Test {
     MockByteUtils internal mockUtils;
 
@@ -58,3 +60,5 @@ contract ByteUtilsTest is Test {
         }
     }
 }
+
+// forge-lint: disable-end(unsafe-typecast)

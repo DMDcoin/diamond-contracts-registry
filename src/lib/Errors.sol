@@ -4,7 +4,7 @@ pragma solidity 0.8.25;
 library Errors {
     error Unauthorised();
 
-    error InvalidReinsertPotAddress();
+    error InvalidReinsertPot();
 
     error InvalidRegistry();
 

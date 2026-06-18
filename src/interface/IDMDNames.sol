@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity 0.8.25;
 
-import { IERC721 } from "@openzeppelin/contracts/interfaces/IERC721.sol";
+import { IERC721 } from "./IERC721.sol";
 
 interface IDMDNames is IERC721 {
     function setTransferFee(uint256 fee) external;
@@ -13,4 +13,8 @@ interface IDMDNames is IERC721 {
     function burn(uint256 id) external;
 
     function available(uint256 id) external view returns (bool);
+
+    function expired(uint256 id) external view returns (bool);
+
+    function exists(uint256 id) external view returns (bool);
 }

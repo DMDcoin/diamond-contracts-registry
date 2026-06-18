@@ -28,7 +28,12 @@ no_match_coverage = "src/mocks/.*"
 [lint]
 lint_on_build = true
 severity = ["high", "medium", "low", "info", "gas"]
-exclude_lints = ["code-size"]
+exclude_lints = [
+    "block-timestamp",
+    "mixed-case-function",
+    "pascal-case-struct",
+    "asm-keccak256",
+]
 
 [doc]
 ignore = ["**/*.t.sol"]

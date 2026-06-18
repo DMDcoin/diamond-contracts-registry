@@ -4,13 +4,15 @@ pragma solidity 0.8.25;
 contract MockEtherReceiver {
     bool public allowReceive;
 
+    error ReceiveDisabled();
+
     constructor() {
         allowReceive = false;
     }
 
     receive() external payable {
         if (!allowReceive) {
-            revert();
+            revert ReceiveDisabled();
         }
     }
 

@@ -10,6 +10,7 @@ import { FixedPointMathLib } from "solady/utils/FixedPointMathLib.sol";
 import { ValueGuards } from "diamond-contracts-core/lib/ValueGuards.sol";
 
 import { IDMDNames } from "./interface/IDMDNames.sol";
+import { IDMDRegistrarController } from "./interface/IDMDRegistrarController.sol";
 import { IENS } from "./interface/IENS.sol";
 import { IResolver } from "./interface/IResolver.sol";
 import { AddressUtils } from "./lib/AddressUtils.sol";
@@ -19,24 +20,33 @@ import { NameBlocklist } from "./lib/NameBlocklist.sol";
 import { NameUtils } from "./lib/NameUtils.sol";
 import { TransferUtils } from "./lib/TransferUtils.sol";
 
-contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlocklist, ValueGuards {
+contract DMDRegistrarController is
+    Initializable,
+    OwnableUpgradeable,
+    NameBlocklist,
+    ValueGuards,
+    IDMDRegistrarController
+{
     using ByteUtils for bytes1;
 
+    string public constant DMD_TLD = ".dmd";
     uint256 public constant MIN_NAME_LENGTH = 2;
-    uint256 public constant MAX_NAME_LENGHT = 63;
+    uint256 public constant MAX_NAME_LENGTH = 63;
 
     uint256 public constant DEFAULT_MINTING_FEE = 5 ether;
     uint256 public constant BASE_MINTING_FEE = 78_125_000 gwei; // 0.078125 DMD
 
     uint256 public constant EXPIRATION_TIME_YEARS = 10;
 
-    uint256 public constant MAX_ACTIVATION_FEE_NOMINATOR = 3;
+    uint256 public constant MAX_ACTIVATION_FEE_NUMERATOR = 3;
     uint256 public constant ACTIVATION_FEE_DENOMINATOR = 10;
 
-    uint256 public constant TRANSFER_FEE_NOMINATOR = 10; // 10%
+    uint256 public constant TRANSFER_FEE_NUMERATOR = 10; // 10%
     uint256 public constant TRANSFER_FEE_DENOMINATOR = 100;
 
     mapping(address => bytes) public names;
+
+    mapping(bytes32 => address) public namesReverse;
 
     mapping(address => uint256) public activations;
 
@@ -49,7 +59,7 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
     /**
      * Minting/activation fees are sent to the reinsert pot.
      */
-    address public reinsertPotAddress;
+    address public reinsertPot;
 
     /**
      * current cost for setting the name.
@@ -59,6 +69,7 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
     error InvalidMintingFee(uint256 want, uint256 sent);
     error InvalidName();
     error NotAvailable();
+    error NameExpired();
     error RegistrarInactive();
     error NameOwnerMismatch(address expected, address actual);
     error NotNameOwner();
@@ -89,13 +100,13 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
 
     function initialize(
         address _initialOwner,
-        address _reinsertPotAddress,
+        address _reinsertPot,
         address _diamondNames,
         address _registry,
         address _resolver
     ) external initializer {
-        if (_reinsertPotAddress == address(0)) {
-            revert Errors.InvalidReinsertPotAddress();
+        if (_reinsertPot == address(0)) {
+            revert Errors.InvalidReinsertPot();
         }
 
         if (_diamondNames == address(0)) {
@@ -116,7 +127,7 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
         diamondNames = IDMDNames(_diamondNames);
         registry = IENS(_registry);
         resolver = IResolver(_resolver);
-        reinsertPotAddress = _reinsertPotAddress;
+        reinsertPot = _reinsertPot;
 
         mintingFee = DEFAULT_MINTING_FEE;
 
@@ -126,7 +137,7 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
     }
 
     function setMintingFee(uint256 _value) public onlyOwner withinAllowedRange(_value) {
-        uint256 transferFee = _value * TRANSFER_FEE_NOMINATOR / TRANSFER_FEE_DENOMINATOR;
+        uint256 transferFee = _value * TRANSFER_FEE_NUMERATOR / TRANSFER_FEE_DENOMINATOR;
 
         mintingFee = _value;
 
@@ -136,10 +147,8 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
     }
 
     function blockName(string calldata _name, address _owner) external activeRegistrar onlyOwner {
-        bytes32 node = NameUtils.nodeHash(_name);
-
-        address nodeOwner = registry.owner(node);
-        address registrant = nodeOwner == address(this) ? address(0) : nodeOwner;
+        bytes32 labelHash = NameUtils.labelHash(_name);
+        address registrant = namesReverse[labelHash];
 
         if (registrant != _owner) {
             revert NameOwnerMismatch(registrant, _owner);
@@ -161,16 +170,21 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
             revert InvalidName();
         }
 
-        if (!available(_name)) {
-            revert NotAvailable();
-        }
-
         if (isNameBlocked(_name)) {
             revert NameBlocked(_name);
         }
 
+        if (!available(_name)) {
+            revert NotAvailable();
+        }
+
         bytes32 labelHash = NameUtils.labelHash(_name);
         uint256 tokenId = uint256(labelHash);
+
+        if (diamondNames.exists(tokenId)) {
+            _resetExpiredName(labelHash, bytes(_name));
+            diamondNames.burn(tokenId);
+        }
 
         uint256 expirationTimestamp = DateTimeLib.addYears(block.timestamp, EXPIRATION_TIME_YEARS);
 
@@ -180,7 +194,7 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
             _activate(msg.sender, bytes(_name));
         }
 
-        TransferUtils.transferNative(reinsertPotAddress, msg.value);
+        TransferUtils.transferNative(reinsertPot, msg.value);
 
         emit NameRegistered(msg.sender, labelHash, expirationTimestamp, _name);
     }
@@ -189,12 +203,16 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
         bytes32 labelHash = NameUtils.labelHash(_name);
         uint256 tokenId = uint256(labelHash);
 
+        if (isNameBlocked(_name)) {
+            revert NameBlocked(_name);
+        }
+
         if (diamondNames.ownerOf(tokenId) != msg.sender) {
             revert NotNameOwner();
         }
 
-        if (isNameBlocked(_name)) {
-            revert NameBlocked(_name);
+        if (diamondNames.expired(tokenId)) {
+            revert NameExpired();
         }
 
         bytes memory current = names[msg.sender];
@@ -210,11 +228,11 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
         _activate(msg.sender, bytes(_name));
 
         if (msg.value != 0) {
-            TransferUtils.transferNative(reinsertPotAddress, msg.value);
+            TransferUtils.transferNative(reinsertPot, msg.value);
         }
     }
 
-    function renew(string calldata _name) external activeRegistrar {
+    function renew(string calldata _name) external {
         bytes32 labelHash = NameUtils.labelHash(_name);
         uint256 tokenId = uint256(labelHash);
 
@@ -232,22 +250,18 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
     function available(string calldata _name) public view returns (bool) {
         bytes32 labelHash = NameUtils.labelHash(_name);
 
-        return diamondNames.available(uint256(labelHash));
+        return !isNameBlocked(_name) && diamondNames.available(uint256(labelHash));
     }
 
     function getActivationFee(address _who) public view returns (uint256) {
         // Fee scales 10% per activation, capped at 30% of the minting fee:
         // 0 -> free, 1 -> 10%, 2 -> 20%, 3+ -> 30%.
-        uint256 nominator = FixedPointMathLib.min(activations[_who], MAX_ACTIVATION_FEE_NOMINATOR);
+        uint256 numerator = FixedPointMathLib.min(activations[_who], MAX_ACTIVATION_FEE_NUMERATOR);
 
-        return mintingFee * nominator / ACTIVATION_FEE_DENOMINATOR;
+        return mintingFee * numerator / ACTIVATION_FEE_DENOMINATOR;
     }
 
     function getHashOfName(string memory _name) public pure returns (bytes32) {
-        return NameUtils.labelHash(_name);
-    }
-
-    function getHashOfNameBytes(bytes memory _name) public pure returns (bytes32) {
         return NameUtils.labelHash(_name);
     }
 
@@ -255,8 +269,8 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
         bytes memory nameBytes = bytes(_name);
         uint256 byteLength = nameBytes.length;
 
-        // Name length must be in range [MIN_NAME_LENTGH, MAX_NAME_LENGTH]
-        if (byteLength < MIN_NAME_LENGTH || byteLength > MAX_NAME_LENGHT) {
+        // Name length must be in range [MIN_NAME_LENGTH, MAX_NAME_LENGTH]
+        if (byteLength < MIN_NAME_LENGTH || byteLength > MAX_NAME_LENGTH) {
             return false;
         }
 
@@ -292,11 +306,11 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
         }
 
         names[_user] = _name;
+        namesReverse[labelHash] = _user;
 
-        // Forward resolution: name -> address
+        // Forward resolution: name -> address.
         registry.setSubnodeRecord(NameUtils.DMD_NODE, labelHash, address(this), address(resolver), 0);
         resolver.setAddr(node, _user);
-        registry.setOwner(node, _user);
 
         // Reverse resolution: address -> name
         bytes32 reverseLabel = AddressUtils.sha3HexAddress(_user);
@@ -309,11 +323,23 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
         emit NameActivated(_user, labelHash, string(_name));
     }
 
+    function resetRecordsOnTransfer(address _from, uint256 _tokenId) external override {
+        if (msg.sender != address(diamondNames)) {
+            revert Errors.Unauthorised();
+        }
+
+        bytes32 labelHash = bytes32(_tokenId);
+
+        if (namesReverse[labelHash] == _from) {
+            _deactivateName(_from, names[_from]);
+        }
+    }
+
     function _deactivateName(address _owner, bytes memory _name) private {
         bytes32 labelHash = NameUtils.labelHash(_name);
         bytes32 node = NameUtils.nodeHash(labelHash);
 
-        registry.setSubnodeOwner(NameUtils.DMD_NODE, labelHash, address(this));
+        // The node is already owned by this controller (wrapper-style); just clear records.
         resolver.setAddr(node, address(0));
         registry.setResolver(node, address(0));
 
@@ -322,12 +348,21 @@ contract DMDRegistrarController is Initializable, OwnableUpgradeable, NameBlockl
         registry.setResolver(reverseNode, address(0));
 
         delete names[_owner];
+        delete namesReverse[labelHash];
 
         emit NameDeactivated(_owner, labelHash, string(_name));
     }
 
+    function _resetExpiredName(bytes32 _labelHash, bytes memory _name) private {
+        address previousOwner = namesReverse[_labelHash];
+
+        if (previousOwner != address(0)) {
+            _deactivateName(previousOwner, _name);
+        }
+    }
+
     function _fullName(bytes memory _label) private pure returns (string memory) {
-        return string(abi.encodePacked(_label, ".dmd"));
+        return string(abi.encodePacked(_label, DMD_TLD));
     }
 
     function _checkRegistrar() private view {

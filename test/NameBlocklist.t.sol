@@ -6,7 +6,6 @@ import { Test } from "forge-std/Test.sol";
 import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import { NameBlocklist } from "src/lib/NameBlocklist.sol";
-import { NameUtils } from "src/lib/NameUtils.sol";
 import { MockNameBlocklist } from "src/mocks/MockNameBlocklist.sol";
 
 contract NameBlocklistTest is Test {

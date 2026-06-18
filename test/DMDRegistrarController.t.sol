@@ -8,6 +8,8 @@ import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/I
 
 import { Upgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
+import { DateTimeLib } from "solady/utils/DateTimeLib.sol";
+
 import { ValueGuards } from "diamond-contracts-core/lib/ValueGuards.sol";
 
 import { DMDNames } from "src/DMDNames.sol";
@@ -45,6 +47,9 @@ contract DMDRegistrarControllerTest is Test {
     bytes32 public constant ADDR_LABEL = keccak256("addr");
     bytes32 public constant REVERSE_NODE = keccak256(abi.encodePacked(ROOT_NODE, REVERSE_LABEL));
 
+    // 10% of DEFAULT_MINTING_FEE (5 ether); cross-checked in test_TransferFee_InitialFeeIsTenPercentOfMintingFee.
+    uint256 public constant INITIAL_TRANSFER_FEE = 0.5 ether;
+
     address public owner;
     address public alice;
     address public bob;
@@ -68,7 +73,9 @@ contract DMDRegistrarControllerTest is Test {
 
         diamondNames = DMDNames(
             Upgrades.deployTransparentProxy(
-                NAMES_CONTRACT, owner, abi.encodeCall(DMDNames.initialize, (owner, BASE_URI))
+                NAMES_CONTRACT,
+                owner,
+                abi.encodeCall(DMDNames.initialize, (owner, REINSERT_POT, INITIAL_TRANSFER_FEE, BASE_URI))
             )
         );
 
@@ -86,7 +93,7 @@ contract DMDRegistrarControllerTest is Test {
         mintingFee = registrar.mintingFee();
 
         vm.prank(owner);
-        diamondNames.setController(address(registrar), true);
+        diamondNames.setRegistrar(address(registrar));
 
         vm.prank(owner);
         registry.setSubnodeOwner(ROOT_NODE, DMD_LABEL, address(registrar));
@@ -106,8 +113,12 @@ contract DMDRegistrarControllerTest is Test {
         registrar.register{ value: mintingFee }(name);
     }
 
-    function _nodeOf(string memory name) internal view returns (bytes32) {
+    function _nodeOf(string memory name) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(NameUtils.DMD_NODE, keccak256(bytes(name))));
+    }
+
+    function _labelOf(string memory name) internal pure returns (bytes32) {
+        return keccak256(bytes(name));
     }
 
     function _reverseNodeOf(address addr) internal pure returns (bytes32) {
@@ -130,7 +141,7 @@ contract DMDRegistrarControllerTest is Test {
     function test_Initialize_InvalidReinsertPot_Reverts() public {
         DMDRegistrarController _registrar = _deployUninitializedController();
 
-        vm.expectRevert(Errors.InvalidReinsertPotAddress.selector);
+        vm.expectRevert(Errors.InvalidReinsertPot.selector);
         _registrar.initialize(owner, address(0), address(diamondNames), address(registry), address(resolver));
     }
 
@@ -161,7 +172,7 @@ contract DMDRegistrarControllerTest is Test {
     }
 
     function test_Initialize() public view {
-        assertEq(registrar.reinsertPotAddress(), REINSERT_POT);
+        assertEq(registrar.reinsertPot(), REINSERT_POT);
         assertEq(address(registrar.diamondNames()), address(diamondNames));
         assertEq(address(registrar.registry()), address(registry));
         assertEq(address(registrar.resolver()), address(resolver));
@@ -211,11 +222,12 @@ contract DMDRegistrarControllerTest is Test {
     function test_Register_EmitsEvent() public {
         string memory name = "alice";
         bytes32 nameHash = keccak256(bytes(name));
+        uint256 expiration = DateTimeLib.addYears(block.timestamp, registrar.EXPIRATION_TIME_YEARS());
 
         vm.deal(alice, mintingFee);
 
-        vm.expectEmit(true, false, false, true, address(registrar));
-        emit DMDRegistrarController.NameRegistered(alice, nameHash, name);
+        vm.expectEmit(true, true, true, true, address(registrar));
+        emit DMDRegistrarController.NameRegistered(alice, nameHash, expiration, name);
 
         vm.prank(alice);
         registrar.register{ value: mintingFee }(name);
@@ -247,7 +259,8 @@ contract DMDRegistrarControllerTest is Test {
         bytes32 node = _nodeOf(name);
 
         assertTrue(registry.recordExists(node));
-        assertEq(registry.owner(node), alice);
+        // Wrapper-style: the controller owns the node; the NFT is the source of truth.
+        assertEq(registry.owner(node), address(registrar));
         assertEq(registry.resolver(node), address(resolver));
         assertEq(registry.ttl(node), 0);
     }
@@ -305,7 +318,7 @@ contract DMDRegistrarControllerTest is Test {
         // existing registration is unaffected — only future registration is prevented
         bytes32 node = _nodeOf(name);
         assertEq(string(registrar.names(alice)), name);
-        assertEq(registry.owner(node), alice);
+        assertEq(registry.owner(node), address(registrar));
         assertEq(resolver.addr(node), alice);
     }
 
@@ -315,6 +328,66 @@ contract DMDRegistrarControllerTest is Test {
         vm.deal(bob, mintingFee);
         vm.prank(bob);
         vm.expectRevert(DMDRegistrarController.NotAvailable.selector);
+        registrar.register{ value: mintingFee }("alice");
+    }
+
+    function _expireName(string memory name) internal {
+        uint256 tokenId = uint256(registrar.getHashOfName(name));
+        vm.warp(diamondNames.nameExpires(tokenId) + 1);
+    }
+
+    function test_Register_ExpiredName_IsAvailable() public {
+        _registerName(alice, "alice");
+        assertFalse(registrar.available("alice"));
+
+        _expireName("alice");
+        assertTrue(registrar.available("alice"));
+    }
+
+    function test_Register_ExpiredName_BurnsOldAndRemintsToNewOwner() public {
+        _registerName(alice, "alice");
+        uint256 tokenId = uint256(registrar.getHashOfName("alice"));
+        assertEq(diamondNames.ownerOf(tokenId), alice);
+
+        _expireName("alice");
+
+        _registerName(bob, "alice");
+
+        // re-minted to the new owner with a fresh expiration
+        assertEq(diamondNames.ownerOf(tokenId), bob);
+        assertGt(diamondNames.nameExpires(tokenId), block.timestamp);
+    }
+
+    function test_Register_ExpiredActiveName_ResetsPreviousOwnerRecords() public {
+        _registerName(alice, "alice");
+        bytes32 node = _nodeOf("alice");
+
+        // sanity: alice is the active owner before expiry
+        assertEq(registrar.namesReverse(_labelOf("alice")), alice);
+        assertEq(resolver.name(_reverseNodeOf(alice)), "alice.dmd");
+
+        _expireName("alice");
+        _registerName(bob, "alice");
+
+        // previous owner's records are gone; the name now resolves to bob (auto-activated)
+        assertEq(string(registrar.names(alice)), "");
+        assertEq(resolver.name(_reverseNodeOf(alice)), "");
+        assertEq(registrar.namesReverse(_labelOf("alice")), bob);
+        assertEq(registry.owner(node), address(registrar));
+        assertEq(resolver.addr(node), bob);
+        assertEq(resolver.name(_reverseNodeOf(bob)), "alice.dmd");
+    }
+
+    function test_Register_ExpiredName_NewOwnerCanBeBlockedAware() public {
+        _registerName(alice, "alice");
+        _expireName("alice");
+
+        vm.prank(owner);
+        registrar.setNameBlocked("alice", true);
+
+        vm.deal(bob, mintingFee);
+        vm.prank(bob);
+        vm.expectRevert(abi.encodeWithSelector(NameBlocklist.NameBlocked.selector, "alice"));
         registrar.register{ value: mintingFee }("alice");
     }
 
@@ -375,6 +448,149 @@ contract DMDRegistrarControllerTest is Test {
         assertEq(registry.resolver(reverseNode), address(0));
     }
 
+    function test_TransferFee_InitialFeeIsTenPercentOfMintingFee() public view {
+        assertEq(diamondNames.transferFee(), INITIAL_TRANSFER_FEE);
+        assertEq(diamondNames.transferFee(), mintingFee / 10);
+    }
+
+    function test_TransferFee_RequiredOnUserTransfer() public {
+        _registerName(alice, "alice");
+        uint256 tokenId = uint256(registrar.getHashOfName("alice"));
+        uint256 fee = diamondNames.transferFee();
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(DMDNames.InvalidTransferFee.selector, fee, 0));
+        diamondNames.transferFrom(alice, bob, tokenId);
+    }
+
+    function test_TransferFee_WrongFeeReverts() public {
+        _registerName(alice, "alice");
+        uint256 tokenId = uint256(registrar.getHashOfName("alice"));
+        uint256 fee = diamondNames.transferFee();
+
+        vm.deal(alice, fee);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(DMDNames.InvalidTransferFee.selector, fee, fee - 1));
+        diamondNames.transferFrom{ value: fee - 1 }(alice, bob, tokenId);
+    }
+
+    function test_TransferFee_CorrectFeeSucceedsAndForwardsToPot() public {
+        _registerName(alice, "alice");
+        uint256 tokenId = uint256(registrar.getHashOfName("alice"));
+        uint256 fee = diamondNames.transferFee();
+
+        uint256 potBefore = REINSERT_POT.balance;
+
+        vm.deal(alice, fee);
+        vm.prank(alice);
+        diamondNames.transferFrom{ value: fee }(alice, bob, tokenId);
+
+        assertEq(diamondNames.ownerOf(tokenId), bob);
+        assertEq(REINSERT_POT.balance, potBefore + fee);
+        assertEq(alice.balance, 0);
+    }
+
+    function test_TransferFee_ControllerExemptFromFee() public {
+        _registerName(alice, "alice");
+        uint256 tokenId = uint256(registrar.getHashOfName("alice"));
+
+        // alice authorises the controller, which can then move the token fee-free
+        vm.prank(alice);
+        diamondNames.approve(address(registrar), tokenId);
+
+        uint256 potBefore = REINSERT_POT.balance;
+
+        vm.prank(address(registrar));
+        diamondNames.transferFrom(alice, bob, tokenId);
+
+        assertEq(diamondNames.ownerOf(tokenId), bob);
+        assertEq(REINSERT_POT.balance, potBefore);
+    }
+
+    function test_Transfer_ResetsActiveNameRecords() public {
+        _registerName(alice, "alice");
+        uint256 tokenId = uint256(registrar.getHashOfName("alice"));
+        bytes32 node = _nodeOf("alice");
+        uint256 fee = diamondNames.transferFee();
+
+        vm.deal(alice, fee);
+        vm.prank(alice);
+        diamondNames.transferFrom{ value: fee }(alice, bob, tokenId);
+
+        // NFT moved to bob
+        assertEq(diamondNames.ownerOf(tokenId), bob);
+
+        // forward records reset (node reclaimed by controller, addr + resolver cleared)
+        assertEq(registry.owner(node), address(registrar));
+        assertEq(resolver.addr(node), address(0));
+        assertEq(registry.resolver(node), address(0));
+
+        // reverse record for the previous owner cleared
+        bytes32 reverseNode = _reverseNodeOf(alice);
+        assertEq(resolver.name(reverseNode), "");
+        assertEq(registry.resolver(reverseNode), address(0));
+
+        // controller bookkeeping cleared
+        assertEq(registrar.names(alice).length, 0);
+    }
+
+    function test_Transfer_NewOwnerMustActivate() public {
+        _registerName(alice, "alice");
+        uint256 tokenId = uint256(registrar.getHashOfName("alice"));
+        bytes32 node = _nodeOf("alice");
+        uint256 fee = diamondNames.transferFee();
+
+        vm.deal(alice, fee);
+        vm.prank(alice);
+        diamondNames.transferFrom{ value: fee }(alice, bob, tokenId);
+
+        // bob's first activation is free
+        assertEq(registrar.getActivationFee(bob), 0);
+
+        vm.prank(bob);
+        registrar.activate("alice");
+
+        // records now resolve to bob
+        assertEq(registry.owner(node), address(registrar));
+        assertEq(registrar.namesReverse(_labelOf("alice")), bob);
+        assertEq(resolver.addr(node), bob);
+        assertEq(resolver.name(_reverseNodeOf(bob)), "alice.dmd");
+        assertEq(string(registrar.names(bob)), "alice");
+    }
+
+    function test_Transfer_InactiveName_DoesNotResetActiveName() public {
+        // alice registers "alice" (auto-activated) and "alice2" (owned but inactive)
+        _registerName(alice, "alice");
+
+        vm.deal(alice, mintingFee);
+        vm.prank(alice);
+        registrar.register{ value: mintingFee }("alice2");
+
+        uint256 inactiveTokenId = uint256(registrar.getHashOfName("alice2"));
+        uint256 fee = diamondNames.transferFee();
+
+        vm.deal(alice, fee);
+        vm.prank(alice);
+        diamondNames.transferFrom{ value: fee }(alice, bob, inactiveTokenId);
+
+        // alice's active "alice" records are untouched
+        bytes32 activeNode = _nodeOf("alice");
+        assertEq(registry.owner(activeNode), address(registrar));
+        assertEq(registrar.namesReverse(_labelOf("alice")), alice);
+        assertEq(resolver.addr(activeNode), alice);
+        assertEq(resolver.name(_reverseNodeOf(alice)), "alice.dmd");
+        assertEq(string(registrar.names(alice)), "alice");
+    }
+
+    function test_ResetRecordsOnTransfer_OnlyCallableByNames() public {
+        _registerName(alice, "alice");
+        uint256 tokenId = uint256(registrar.getHashOfName("alice"));
+
+        vm.prank(alice);
+        vm.expectRevert(Errors.Unauthorised.selector);
+        registrar.resetRecordsOnTransfer(alice, tokenId);
+    }
+
     function test_SetMintingFee() public {
         uint256 newFee = mintingFee * 2; // allowed increase
 
@@ -385,6 +601,15 @@ contract DMDRegistrarControllerTest is Test {
         registrar.setMintingFee(newFee);
 
         assertEq(registrar.mintingFee(), newFee);
+    }
+
+    function test_SetMintingFee_SyncsTransferFee() public {
+        uint256 newFee = mintingFee * 2; // allowed increase
+
+        vm.prank(owner);
+        registrar.setMintingFee(newFee);
+
+        assertEq(diamondNames.transferFee(), newFee / 10);
     }
 
     function test_SetMintingFee_ValueOutOfRange_Reverts() public {

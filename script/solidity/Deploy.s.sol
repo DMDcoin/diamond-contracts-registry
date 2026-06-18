@@ -19,6 +19,7 @@ contract Deploy is Script {
         string baseUri;
     }
 
+    uint256 public constant MINTING_FEE = 5 ether;
     bytes32 public constant ROOT_NODE = bytes32(0);
     bytes32 public constant DMD_LABEL = keccak256("dmd");
     bytes32 public constant REVERSE_LABEL = keccak256("reverse");
@@ -40,12 +41,14 @@ contract Deploy is Script {
     }
 
     function deploy(DeploymentConfig memory cfg, bool release) public {
-        vm.startBroadcast();
+        uint256 initialTransferFee = MINTING_FEE / 10;
 
         address proxyAdminOwner = cfg.initialOwner;
         if (release) {
             proxyAdminOwner = cfg.dao;
         }
+
+        vm.startBroadcast();
 
         DMDRegistry registry = DMDRegistry(
             Upgrades.deployTransparentProxy(
@@ -59,7 +62,9 @@ contract Deploy is Script {
             Upgrades.deployTransparentProxy(
                 "DMDNames.sol:DMDNames",
                 proxyAdminOwner,
-                abi.encodeCall(DMDNames.initialize, (cfg.initialOwner, cfg.baseUri))
+                abi.encodeCall(
+                    DMDNames.initialize, (cfg.initialOwner, cfg.reinsertPot, initialTransferFee, cfg.baseUri)
+                )
             )
         );
 
@@ -82,7 +87,7 @@ contract Deploy is Script {
             )
         );
 
-        names.setController(address(controller), true);
+        names.setRegistrar(address(controller));
 
         // Setup .dmd TLD
         registry.setSubnodeOwner(ROOT_NODE, DMD_LABEL, address(controller));
