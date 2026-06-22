@@ -6,6 +6,19 @@
   },
   {
     "type": "function",
+    "name": "ACTIVATION_FEE_DENOMINATOR",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "BASE_MINTING_FEE",
     "inputs": [],
     "outputs": [
@@ -32,6 +45,19 @@
   },
   {
     "type": "function",
+    "name": "DMD_TLD",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "EXPIRATION_TIME_YEARS",
     "inputs": [],
     "outputs": [
@@ -45,7 +71,20 @@
   },
   {
     "type": "function",
-    "name": "MAX_NAME_LENGHT",
+    "name": "MAX_ACTIVATION_FEE_NUMERATOR",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_NAME_LENGTH",
     "inputs": [],
     "outputs": [
       {
@@ -71,10 +110,42 @@
   },
   {
     "type": "function",
-    "name": "activate",
+    "name": "TRANSFER_FEE_DENOMINATOR",
     "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "TRANSFER_FEE_NUMERATOR",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "activate",
+    "inputs": [
+      {
+        "name": "_name",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
     "outputs": [],
-    "stateMutability": "nonpayable"
+    "stateMutability": "payable"
   },
   {
     "type": "function",
@@ -91,25 +162,6 @@
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "addr",
-    "inputs": [
-      {
-        "name": "node",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "address",
-        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -135,32 +187,50 @@
   },
   {
     "type": "function",
+    "name": "blockName",
+    "inputs": [
+      {
+        "name": "_name",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "_owner",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "diamondNames",
     "inputs": [],
     "outputs": [
       {
         "name": "",
         "type": "address",
-        "internalType": "contract IDiamondNames"
+        "internalType": "contract IDMDNames"
       }
     ],
     "stateMutability": "view"
   },
   {
     "type": "function",
-    "name": "getAddressOfName",
+    "name": "getActivationFee",
     "inputs": [
       {
-        "name": "_name",
-        "type": "string",
-        "internalType": "string"
+        "name": "_who",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [
       {
         "name": "",
-        "type": "address",
-        "internalType": "address"
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -248,25 +318,6 @@
   },
   {
     "type": "function",
-    "name": "getHashOfNameBytes",
-    "inputs": [
-      {
-        "name": "_name",
-        "type": "bytes",
-        "internalType": "bytes"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "bytes32",
-        "internalType": "bytes32"
-      }
-    ],
-    "stateMutability": "pure"
-  },
-  {
-    "type": "function",
     "name": "initialize",
     "inputs": [
       {
@@ -275,7 +326,7 @@
         "internalType": "address"
       },
       {
-        "name": "_reinsertPotAddress",
+        "name": "_reinsertPot",
         "type": "address",
         "internalType": "address"
       },
@@ -283,10 +334,39 @@
         "name": "_diamondNames",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "_registry",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_resolver",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "isNameBlocked",
+    "inputs": [
+      {
+        "name": "_name",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -321,25 +401,6 @@
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "name",
-    "inputs": [
-      {
-        "name": "node",
-        "type": "address",
-        "internalType": "address"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "string",
-        "internalType": "string"
       }
     ],
     "stateMutability": "view"
@@ -410,7 +471,20 @@
   },
   {
     "type": "function",
-    "name": "reinsertPotAddress",
+    "name": "registry",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IENS"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "reinsertPot",
     "inputs": [],
     "outputs": [
       {
@@ -436,10 +510,54 @@
   },
   {
     "type": "function",
+    "name": "renew",
+    "inputs": [
+      {
+        "name": "_name",
+        "type": "string",
+        "internalType": "string"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "renounceOwnership",
     "inputs": [],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "resetRecordsOnTransfer",
+    "inputs": [
+      {
+        "name": "_from",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_tokenId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "resolver",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IResolver"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -472,6 +590,42 @@
         "name": "_value",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setNameBlocked",
+    "inputs": [
+      {
+        "name": "_name",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "_blocked",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setNamesBlocked",
+    "inputs": [
+      {
+        "name": "_names",
+        "type": "string[]",
+        "internalType": "string[]"
+      },
+      {
+        "name": "_blocked",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "outputs": [],
@@ -524,6 +678,81 @@
   },
   {
     "type": "event",
+    "name": "NameActivated",
+    "inputs": [
+      {
+        "name": "owner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "labelHash",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "NameBlockedSet",
+    "inputs": [
+      {
+        "name": "labelHash",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      },
+      {
+        "name": "blocked",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "NameDeactivated",
+    "inputs": [
+      {
+        "name": "owner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "labelHash",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "NameRegistered",
     "inputs": [
       {
@@ -533,10 +762,47 @@
         "internalType": "address"
       },
       {
-        "name": "nameHash",
+        "name": "labelHash",
         "type": "bytes32",
         "indexed": true,
         "internalType": "bytes32"
+      },
+      {
+        "name": "expiration",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "NameRenewed",
+    "inputs": [
+      {
+        "name": "owner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "labelHash",
+        "type": "bytes32",
+        "indexed": true,
+        "internalType": "bytes32"
+      },
+      {
+        "name": "expiration",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
       },
       {
         "name": "name",
@@ -619,13 +885,29 @@
   },
   {
     "type": "error",
+    "name": "AlreadyActive",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "GetterCallFailed",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "InvalidAddress",
-    "inputs": []
+    "name": "InvalidActivationFee",
+    "inputs": [
+      {
+        "name": "want",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "sent",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
   },
   {
     "type": "error",
@@ -655,6 +937,58 @@
   },
   {
     "type": "error",
+    "name": "InvalidNamesContract",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidRegistry",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidReinsertPot",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidResolver",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NameBlocked",
+    "inputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "internalType": "string"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NameExpired",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NameOwnerMismatch",
+    "inputs": [
+      {
+        "name": "expected",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "actual",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "NewValueOutOfRange",
     "inputs": [
       {
@@ -672,6 +1006,11 @@
   {
     "type": "error",
     "name": "NotInitializing",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotNameOwner",
     "inputs": []
   },
   {
@@ -698,6 +1037,11 @@
   },
   {
     "type": "error",
+    "name": "RegistrarInactive",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "TransferFailed",
     "inputs": [
       {
@@ -711,5 +1055,10 @@
         "internalType": "uint256"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "Unauthorised",
+    "inputs": []
   }
 ]

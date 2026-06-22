@@ -7,9 +7,10 @@ set -euo pipefail
 
 abi_dir="./abi"
 declare -a contracts=(
-    "src/DiamondNames.sol"
-    "src/DiamondRegistrarController.sol"
-    "src/DiamondRegistry.sol"
+    "src/DMDNames.sol"
+    "src/DMDRegistrarController.sol"
+    "src/DMDRegistry.sol"
+    "src/DMDResolver.sol"
 )
 
 mkdir -p abi
