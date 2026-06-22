@@ -2,6 +2,7 @@
 pragma solidity 0.8.25;
 
 import { Script } from "forge-std/Script.sol";
+import { console } from "forge-std/console.sol";
 
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { Upgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
@@ -104,5 +105,10 @@ contract Deploy is Script {
         }
 
         vm.stopBroadcast();
+
+        console.log("Registrar: %s", address(controller));
+        console.log("Names    : %s", address(names));
+        console.log("Registry : %s", address(registry));
+        console.log("Resolver : %s", address(resolver));
     }
 }
