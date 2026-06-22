@@ -2,7 +2,7 @@
 // Forked version with payable transfer* functions.
 // Original: OpenZeppelin Contracts v5.1.0 (token/ERC721/ERC721.sol)
 
-pragma solidity ^0.8.20;
+pragma solidity 0.8.25;
 
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import { ContextUpgradeable } from "@openzeppelin/contracts-upgradeable/utils/ContextUpgradeable.sol";

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity >=0.8.4;
+pragma solidity 0.8.25;
 
 // Original ENS registry interface.
 // Reference: https://github.com/ensdomains/ens-contracts/blob/staging/contracts/registry/ENS.sol
