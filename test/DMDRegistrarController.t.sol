@@ -47,7 +47,6 @@ contract DMDRegistrarControllerTest is Test {
     bytes32 public constant ADDR_LABEL = keccak256("addr");
     bytes32 public constant REVERSE_NODE = keccak256(abi.encodePacked(ROOT_NODE, REVERSE_LABEL));
 
-    // 10% of DEFAULT_MINTING_FEE (5 ether); cross-checked in test_TransferFee_InitialFeeIsTenPercentOfMintingFee.
     uint256 public constant INITIAL_TRANSFER_FEE = 0.5 ether;
 
     address public owner;
@@ -98,7 +97,6 @@ contract DMDRegistrarControllerTest is Test {
         vm.prank(owner);
         registry.setSubnodeOwner(ROOT_NODE, DMD_LABEL, address(registrar));
 
-        // Bootstrap addr.reverse so the controller can write ENS reverse records.
         vm.prank(owner);
         registry.setSubnodeOwner(ROOT_NODE, REVERSE_LABEL, owner);
 
@@ -197,7 +195,6 @@ contract DMDRegistrarControllerTest is Test {
     }
 
     function test_Register_RegistrarInactive_Reverts() public {
-        // root owner takes the dmd node back from the controller
         vm.prank(owner);
         registry.setSubnodeOwner(ROOT_NODE, DMD_LABEL, owner);
 
@@ -259,7 +256,6 @@ contract DMDRegistrarControllerTest is Test {
         bytes32 node = _nodeOf(name);
 
         assertTrue(registry.recordExists(node));
-        // Wrapper-style: the controller owns the node; the NFT is the source of truth.
         assertEq(registry.owner(node), address(registrar));
         assertEq(registry.resolver(node), address(resolver));
         assertEq(registry.ttl(node), 0);
@@ -278,8 +274,8 @@ contract DMDRegistrarControllerTest is Test {
     }
 
     function test_Resolver_SupportsAddrInterface() public view {
-        assertTrue(resolver.supportsInterface(0x01ffc9a7)); // ERC-165
-        assertTrue(resolver.supportsInterface(0x3b3b57de)); // addr(bytes32)
+        assertTrue(resolver.supportsInterface(0x01ffc9a7));
+        assertTrue(resolver.supportsInterface(0x3b3b57de));
     }
 
     function test_Register_BlockedName_Reverts() public {
@@ -315,7 +311,6 @@ contract DMDRegistrarControllerTest is Test {
         vm.prank(owner);
         registrar.setNameBlocked(name, true);
 
-        // existing registration is unaffected — only future registration is prevented
         bytes32 node = _nodeOf(name);
         assertEq(string(registrar.names(alice)), name);
         assertEq(registry.owner(node), address(registrar));
@@ -353,7 +348,6 @@ contract DMDRegistrarControllerTest is Test {
 
         _registerName(bob, "alice");
 
-        // re-minted to the new owner with a fresh expiration
         assertEq(diamondNames.ownerOf(tokenId), bob);
         assertGt(diamondNames.nameExpires(tokenId), block.timestamp);
     }
@@ -362,14 +356,12 @@ contract DMDRegistrarControllerTest is Test {
         _registerName(alice, "alice");
         bytes32 node = _nodeOf("alice");
 
-        // sanity: alice is the active owner before expiry
         assertEq(registrar.namesReverse(_labelOf("alice")), alice);
         assertEq(resolver.name(_reverseNodeOf(alice)), "alice.dmd");
 
         _expireName("alice");
         _registerName(bob, "alice");
 
-        // previous owner's records are gone; the name now resolves to bob (auto-activated)
         assertEq(string(registrar.names(alice)), "");
         assertEq(resolver.name(_reverseNodeOf(alice)), "");
         assertEq(registrar.namesReverse(_labelOf("alice")), bob);
@@ -399,7 +391,7 @@ contract DMDRegistrarControllerTest is Test {
     }
 
     function test_Resolver_SupportsNameInterface() public view {
-        assertTrue(resolver.supportsInterface(0x691f3431)); // name(bytes32)
+        assertTrue(resolver.supportsInterface(0x691f3431));
     }
 
     function test_Register_ReverseResolution_ENSPath() public {
@@ -417,7 +409,6 @@ contract DMDRegistrarControllerTest is Test {
     function test_Activate_SwitchPrimary_UpdatesReverseRecord() public {
         _registerName(alice, "alice");
 
-        // alice owns a second name and activates it (tier 1 -> 10% of minting fee)
         vm.deal(alice, mintingFee);
         vm.prank(alice);
         registrar.register{ value: mintingFee }("alice2");
@@ -430,9 +421,7 @@ contract DMDRegistrarControllerTest is Test {
         bytes32 reverseNode = _reverseNodeOf(alice);
         assertEq(resolver.name(reverseNode), "alice2.dmd");
 
-        // forward record of the new primary points back at alice
         assertEq(resolver.addr(_nodeOf("alice2")), alice);
-        // the previously active name is no longer wired to alice
         assertEq(registry.owner(_nodeOf("alice")), address(registrar));
     }
 
@@ -494,7 +483,6 @@ contract DMDRegistrarControllerTest is Test {
         _registerName(alice, "alice");
         uint256 tokenId = uint256(registrar.getHashOfName("alice"));
 
-        // alice authorises the controller, which can then move the token fee-free
         vm.prank(alice);
         diamondNames.approve(address(registrar), tokenId);
 
@@ -517,20 +505,16 @@ contract DMDRegistrarControllerTest is Test {
         vm.prank(alice);
         diamondNames.transferFrom{ value: fee }(alice, bob, tokenId);
 
-        // NFT moved to bob
         assertEq(diamondNames.ownerOf(tokenId), bob);
 
-        // forward records reset (node reclaimed by controller, addr + resolver cleared)
         assertEq(registry.owner(node), address(registrar));
         assertEq(resolver.addr(node), address(0));
         assertEq(registry.resolver(node), address(0));
 
-        // reverse record for the previous owner cleared
         bytes32 reverseNode = _reverseNodeOf(alice);
         assertEq(resolver.name(reverseNode), "");
         assertEq(registry.resolver(reverseNode), address(0));
 
-        // controller bookkeeping cleared
         assertEq(registrar.names(alice).length, 0);
     }
 
@@ -544,13 +528,11 @@ contract DMDRegistrarControllerTest is Test {
         vm.prank(alice);
         diamondNames.transferFrom{ value: fee }(alice, bob, tokenId);
 
-        // bob's first activation is free
         assertEq(registrar.getActivationFee(bob), 0);
 
         vm.prank(bob);
         registrar.activate("alice");
 
-        // records now resolve to bob
         assertEq(registry.owner(node), address(registrar));
         assertEq(registrar.namesReverse(_labelOf("alice")), bob);
         assertEq(resolver.addr(node), bob);
@@ -559,7 +541,6 @@ contract DMDRegistrarControllerTest is Test {
     }
 
     function test_Transfer_InactiveName_DoesNotResetActiveName() public {
-        // alice registers "alice" (auto-activated) and "alice2" (owned but inactive)
         _registerName(alice, "alice");
 
         vm.deal(alice, mintingFee);
@@ -573,7 +554,6 @@ contract DMDRegistrarControllerTest is Test {
         vm.prank(alice);
         diamondNames.transferFrom{ value: fee }(alice, bob, inactiveTokenId);
 
-        // alice's active "alice" records are untouched
         bytes32 activeNode = _nodeOf("alice");
         assertEq(registry.owner(activeNode), address(registrar));
         assertEq(registrar.namesReverse(_labelOf("alice")), alice);
@@ -592,7 +572,7 @@ contract DMDRegistrarControllerTest is Test {
     }
 
     function test_SetMintingFee() public {
-        uint256 newFee = mintingFee * 2; // allowed increase
+        uint256 newFee = mintingFee * 2;
 
         vm.prank(owner);
 
@@ -604,7 +584,7 @@ contract DMDRegistrarControllerTest is Test {
     }
 
     function test_SetMintingFee_SyncsTransferFee() public {
-        uint256 newFee = mintingFee * 2; // allowed increase
+        uint256 newFee = mintingFee * 2;
 
         vm.prank(owner);
         registrar.setMintingFee(newFee);
@@ -613,7 +593,7 @@ contract DMDRegistrarControllerTest is Test {
     }
 
     function test_SetMintingFee_ValueOutOfRange_Reverts() public {
-        uint256 outOfRange = mintingFee / 4; // not allowed decrease (2 steps)
+        uint256 outOfRange = mintingFee / 4;
 
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(ValueGuards.NewValueOutOfRange.selector, outOfRange));
