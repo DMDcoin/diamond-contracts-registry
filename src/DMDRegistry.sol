@@ -6,14 +6,17 @@ import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/I
 import { IENS } from "./interface/IENS.sol";
 import { Errors } from "./lib/Errors.sol";
 
-// Original ENS registry implementation.
-// Reference: https://github.com/ensdomains/ens-contracts/blob/staging/contracts/registry/ENSRegistry.sol
-
+/// @notice Records registry of the DMD naming system. Maps every node to its owner,
+/// resolver and TTL. Compatible with original ENS registry.
+///
+/// @dev Updated copy of ENS registry implementation
+/// Reference: https://github.com/ensdomains/ens-contracts/blob/staging/contracts/registry/ENSRegistry.sol
 contract DMDRegistry is Initializable, IENS {
     mapping(bytes32 => Record) private _records;
     mapping(address => mapping(address => bool)) private _operators;
 
-    // Permits modifications only by the owner of the specified node.
+    /// @dev Restricts a call to the owner of `node` or one of its approved operators.
+    /// @param node The node whose modification is being authorised.
     modifier authorised(bytes32 node) {
         address _owner = _records[node].owner;
 
@@ -24,38 +27,35 @@ contract DMDRegistry is Initializable, IENS {
         _;
     }
 
-    /**
-     * @custom:oz-upgrades-unsafe-allow constructor
-     */
+    /// @dev Prevents initialization of the implementation contract.
+    /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
+    /// @notice Initializes the registry and assigns the root node to its owner.
+    /// @param _rootOwner The address that will own the root node
     function initialize(address _rootOwner) external initializer {
         _records[0x0].owner = _rootOwner;
     }
 
-    /**
-     * @dev Sets the record for a node.
-     * @param _node The node to update.
-     * @param _owner The address of the new owner.
-     * @param _resolver The address of the resolver.
-     * @param _ttl The TTL in seconds.
-     */
+    /// @dev Sets the record for a node.
+    /// @param _node The node to update.
+    /// @param _owner The address of the new owner.
+    /// @param _resolver The address of the resolver.
+    /// @param _ttl The TTL in seconds.
     function setRecord(bytes32 _node, address _owner, address _resolver, uint64 _ttl) external virtual override {
         setOwner(_node, _owner);
 
         _setResolverAndTTL(_node, _resolver, _ttl);
     }
 
-    /**
-     * @dev Sets the record for a subnode.
-     * @param _node The parent node.
-     * @param _label The hash of the label specifying the subnode.
-     * @param _owner The address of the new owner.
-     * @param _resolver The address of the resolver.
-     * @param _ttl The TTL in seconds.
-     */
+    /// @dev Sets the record for a subnode.
+    /// @param _node The parent node.
+    /// @param _label The hash of the label specifying the subnode.
+    /// @param _owner The address of the new owner.
+    /// @param _resolver The address of the resolver.
+    /// @param _ttl The TTL in seconds.
     function setSubnodeRecord(
         bytes32 _node,
         bytes32 _label,
@@ -68,24 +68,20 @@ contract DMDRegistry is Initializable, IENS {
         _setResolverAndTTL(subnode, _resolver, _ttl);
     }
 
-    /**
-     * @dev Transfers ownership of a node to a new address. May only be called by the current owner of the node.
-     * @param _node The node to transfer ownership of.
-     * @param _owner The address of the new owner.
-     */
+    /// @dev Transfers ownership of a node to a new address. May only be called by the current owner of the node.
+    /// @param _node The node to transfer ownership of.
+    /// @param _owner The address of the new owner.
     function setOwner(bytes32 _node, address _owner) public virtual override authorised(_node) {
         _setOwner(_node, _owner);
 
         emit Transfer(_node, _owner);
     }
 
-    /**
-     * @dev Transfers ownership of a subnode keccak256(node, label) to a new address. May only be called by the owner of
-     * the parent node.
-     * @param _node The parent node.
-     * @param _label The hash of the label specifying the subnode.
-     * @param _owner The address of the new owner.
-     */
+    /// @dev Transfers ownership of a subnode keccak256(node, label) to a new address. May only be called by the owner
+    /// of the parent node.
+    /// @param _node The parent node.
+    /// @param _label The hash of the label specifying the subnode.
+    /// @param _owner The address of the new owner.
     function setSubnodeOwner(
         bytes32 _node,
         bytes32 _label,
@@ -100,45 +96,37 @@ contract DMDRegistry is Initializable, IENS {
         return subnode;
     }
 
-    /**
-     * @dev Sets the resolver address for the specified node.
-     * @param _node The node to update.
-     * @param _resolver The address of the resolver.
-     */
+    /// @dev Sets the resolver address for the specified node.
+    /// @param _node The node to update.
+    /// @param _resolver The address of the resolver.
     function setResolver(bytes32 _node, address _resolver) public virtual override authorised(_node) {
         _records[_node].resolver = _resolver;
 
         emit NewResolver(_node, _resolver);
     }
 
-    /**
-     * @dev Sets the TTL for the specified node.
-     * @param _node The node to update.
-     * @param _ttl The TTL in seconds.
-     */
+    /// @dev Sets the TTL for the specified node.
+    /// @param _node The node to update.
+    /// @param _ttl The TTL in seconds.
     function setTTL(bytes32 _node, uint64 _ttl) public virtual override authorised(_node) {
         _records[_node].ttl = _ttl;
 
         emit NewTTL(_node, _ttl);
     }
 
-    /**
-     * @dev Enable or disable approval for a third party ("operator") to manage
-     *      all of `msg.sender`'s ENS records. Emits the ApprovalForAll event.
-     * @param _operator Address to add to the set of authorized operators.
-     * @param _approved True if the operator is approved, false to revoke approval.
-     */
+    /// @dev Enable or disable approval for a third party ("operator") to manage
+    ///      all of `msg.sender`'s ENS records. Emits the ApprovalForAll event.
+    /// @param _operator Address to add to the set of authorized operators.
+    /// @param _approved True if the operator is approved, false to revoke approval.
     function setApprovalForAll(address _operator, bool _approved) external virtual override {
         _operators[msg.sender][_operator] = _approved;
 
         emit ApprovalForAll(msg.sender, _operator, _approved);
     }
 
-    /**
-     * @dev Returns the address that owns the specified node.
-     * @param _node The specified node.
-     * @return address of the owner.
-     */
+    /// @dev Returns the address that owns the specified node.
+    /// @param _node The specified node.
+    /// @return address of the owner.
     function owner(bytes32 _node) public view virtual override returns (address) {
         address addr = _records[_node].owner;
 
@@ -149,39 +137,31 @@ contract DMDRegistry is Initializable, IENS {
         return addr;
     }
 
-    /**
-     * @dev Returns the address of the resolver for the specified node.
-     * @param _node The specified node.
-     * @return address of the resolver.
-     */
+    /// @dev Returns the address of the resolver for the specified node.
+    /// @param _node The specified node.
+    /// @return address of the resolver.
     function resolver(bytes32 _node) public view virtual override returns (address) {
         return _records[_node].resolver;
     }
 
-    /**
-     * @dev Returns the TTL of a node, and any records associated with it.
-     * @param _node The specified node.
-     * @return ttl of the node.
-     */
+    /// @dev Returns the TTL of a node, and any records associated with it.
+    /// @param _node The specified node.
+    /// @return ttl of the node.
     function ttl(bytes32 _node) public view virtual override returns (uint64) {
         return _records[_node].ttl;
     }
 
-    /**
-     * @dev Returns whether a record has been imported to the registry.
-     * @param _node The specified node.
-     * @return Bool if record exists
-     */
+    /// @dev Returns whether a record has been imported to the registry.
+    /// @param _node The specified node.
+    /// @return Bool if record exists
     function recordExists(bytes32 _node) public view virtual override returns (bool) {
         return _records[_node].owner != address(0x0);
     }
 
-    /**
-     * @dev Query if an address is an authorized operator for another address.
-     * @param _owner The address that owns the records.
-     * @param _operator The address that acts on behalf of the owner.
-     * @return True if `operator` is an approved operator for `owner`, false otherwise.
-     */
+    /// @dev Query if an address is an authorized operator for another address.
+    /// @param _owner The address that owns the records.
+    /// @param _operator The address that acts on behalf of the owner.
+    /// @return True if `operator` is an approved operator for `owner`, false otherwise.
     function isApprovedForAll(address _owner, address _operator) external view virtual override returns (bool) {
         return _operators[_owner][_operator];
     }

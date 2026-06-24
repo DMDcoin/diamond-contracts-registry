@@ -20,6 +20,7 @@ import { NameBlocklist } from "./lib/NameBlocklist.sol";
 import { NameUtils } from "./lib/NameUtils.sol";
 import { TransferUtils } from "./lib/TransferUtils.sol";
 
+/// @dev A registrar controller for registering, activating and renewing names.
 contract DMDRegistrarController is
     Initializable,
     OwnableUpgradeable,
@@ -29,75 +30,101 @@ contract DMDRegistrarController is
 {
     using ByteUtils for bytes1;
 
+    /// @notice DMD top-level domain suffix.
     string public constant DMD_TLD = ".dmd";
+
     uint256 public constant MIN_NAME_LENGTH = 2;
     uint256 public constant MAX_NAME_LENGTH = 63;
 
     uint256 public constant DEFAULT_MINTING_FEE = 5 ether;
     uint256 public constant BASE_MINTING_FEE = 78_125_000 gwei; // 0.078125 DMD
 
+    /// @notice Registration/renewal term length in years.
     uint256 public constant EXPIRATION_TIME_YEARS = 10;
 
+    /// @notice Maximum numerator for the activation fee (3+ activations = 30% if minting fee).
     uint256 public constant MAX_ACTIVATION_FEE_NUMERATOR = 3;
     uint256 public constant ACTIVATION_FEE_DENOMINATOR = 10;
 
     uint256 public constant TRANSFER_FEE_NUMERATOR = 10; // 10%
     uint256 public constant TRANSFER_FEE_DENOMINATOR = 100;
 
+    /// @notice Active name per address.
     mapping(address => bytes) public names;
 
+    /// @notice Reverse index from a name's label hash to the address.
     mapping(bytes32 => address) public namesReverse;
 
+    /// @notice Number of activations done by an address.
     mapping(address => uint256) public activations;
 
+    /// @notice The ERC-721 name token contract.
     IDMDNames public diamondNames;
 
+    /// @notice The ENS-compatible registry.
     IENS public registry;
 
+    /// @notice The ENS-compatible resolver.
     IResolver public resolver;
 
-    /**
-     * Minting/activation fees are sent to the reinsert pot.
-     */
+    /// @notice Minting and activation fees collector address.
     address public reinsertPot;
 
-    /**
-     * current cost for setting the name.
-     */
+    /// @notice Current cost to register a name.
     uint256 public mintingFee;
 
+    /// @notice Thrown when `register` is called with an incorrect fee.
     error InvalidMintingFee(uint256 want, uint256 sent);
+    /// @notice Thrown when a name fails validation rules.
     error InvalidName();
+    /// @notice Thrown when registering a name that is already taken.
     error NotAvailable();
+    /// @notice Thrown when activating an expired name.
     error NameExpired();
+    /// @notice Thrown if current registrar controller is inactive.
     error RegistrarInactive();
+    /// @notice Thrown when the expected owner does not match the active registrant.
     error NameOwnerMismatch(address expected, address actual);
+    /// @notice Thrown when the caller does not own the name token.
     error NotNameOwner();
+    /// @notice Thrown when `activate` is called with an incorrect fee.
     error InvalidActivationFee(uint256 want, uint256 sent);
+    /// @notice Thrown when activating a name that is already the caller's primary.
     error AlreadyActive();
 
+    /// @notice Emitted when a name is registered.
     event NameRegistered(address indexed node, bytes32 indexed labelHash, uint256 indexed expiration, string name);
 
+    /// @notice Emitted when a name was activated as primary.
     event NameActivated(address indexed owner, bytes32 indexed labelHash, string name);
 
+    /// @notice Emitted when a name's records are cleared.
     event NameDeactivated(address indexed owner, bytes32 indexed labelHash, string name);
 
+    /// @notice Emitted when a name's registration term is extended.
     event NameRenewed(address indexed owner, bytes32 indexed labelHash, uint256 indexed expiration, string name);
 
+    /// @notice Emitted when the minting fee is updated.
     event SetMintingFee(uint256 indexed value);
 
+    /// @dev Reverts unless the controller currently owns the `.dmd` node.
     modifier activeRegistrar() {
         _checkRegistrar();
         _;
     }
 
-    /**
-     * @custom:oz-upgrades-unsafe-allow constructor
-     */
+    /// @notice Prevents initialization of the implementation contract.
+    /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
 
+    /// @notice Initializes the controller.
+    /// @param _initialOwner The owner of the contract
+    /// @param _reinsertPot Fee collector address
+    /// @param _diamondNames The ERC-721 name token contract
+    /// @param _registry The ENS-compatible registry
+    /// @param _resolver The ENS-compatible resolver
     function initialize(
         address _initialOwner,
         address _reinsertPot,
@@ -136,6 +163,9 @@ contract DMDRegistrarController is
         );
     }
 
+    /// @notice Updates the minting and token transfer fee.
+    /// @dev Restricted to the owner; the value must be within the allowed range.
+    /// @param _value The new minting fee
     function setMintingFee(uint256 _value) public onlyOwner withinAllowedRange(_value) {
         uint256 transferFee = _value * TRANSFER_FEE_NUMERATOR / TRANSFER_FEE_DENOMINATOR;
 
@@ -146,6 +176,9 @@ contract DMDRegistrarController is
         diamondNames.setTransferFee(transferFee);
     }
 
+    /// @notice Blocks a name and deactivates it if it is currently active.
+    /// @param _name The name to block
+    /// @param _owner Current active registrant of the name
     function blockName(string calldata _name, address _owner) external activeRegistrar onlyOwner {
         bytes32 labelHash = NameUtils.labelHash(_name);
         address registrant = namesReverse[labelHash];
@@ -161,6 +194,8 @@ contract DMDRegistrarController is
         _setNameBlocked(_name, true);
     }
 
+    /// @notice Registers a `.dmd` name, minting its token to the caller.
+    /// @param _name The label to register (without the `.dmd` suffix)
     function register(string calldata _name) external payable activeRegistrar {
         if (msg.value != mintingFee) {
             revert InvalidMintingFee(mintingFee, msg.value);
@@ -199,6 +234,9 @@ contract DMDRegistrarController is
         emit NameRegistered(msg.sender, labelHash, expirationTimestamp, _name);
     }
 
+    /// @notice Activates a name as the caller's primary name, configures forward/reverse resolver records
+    /// The first activation per address is free; subsequent ones cost a fee
+    /// @param _name The name to activate (without the `.dmd` suffix)
     function activate(string calldata _name) external payable activeRegistrar {
         bytes32 labelHash = NameUtils.labelHash(_name);
         uint256 tokenId = uint256(labelHash);
@@ -232,6 +270,8 @@ contract DMDRegistrarController is
         }
     }
 
+    /// @notice Extends the registration term of an owned name.
+    /// @param _name The label to renew (without the `.dmd` suffix)
     function renew(string calldata _name) external {
         bytes32 labelHash = NameUtils.labelHash(_name);
         uint256 tokenId = uint256(labelHash);
@@ -247,24 +287,37 @@ contract DMDRegistrarController is
         emit NameRenewed(msg.sender, labelHash, expirationTimestamp, _name);
     }
 
+    /// @notice Returns whether a name can be registered.
+    /// A name is available only if it is not blocked and the token is free or expired.
+    /// @param _name The label to check (without the `.dmd` suffix)
+    /// @return True if the name can be registered
     function available(string calldata _name) public view returns (bool) {
         bytes32 labelHash = NameUtils.labelHash(_name);
 
         return !isNameBlocked(_name) && diamondNames.available(uint256(labelHash));
     }
 
+    /// @notice Returns the fee an address must pay for its next activation.
+    /// Fee scales 10% per prior activation, capped at 30% of the minting fee:
+    /// 0 -> free, 1 -> 10%, 2 -> 20%, 3+ -> 30%.
+    /// @param _who The address whose next activation fee to get
+    /// @return The activation fee in native token
     function getActivationFee(address _who) public view returns (uint256) {
-        // Fee scales 10% per activation, capped at 30% of the minting fee:
-        // 0 -> free, 1 -> 10%, 2 -> 20%, 3+ -> 30%.
         uint256 numerator = FixedPointMathLib.min(activations[_who], MAX_ACTIVATION_FEE_NUMERATOR);
 
         return mintingFee * numerator / ACTIVATION_FEE_DENOMINATOR;
     }
 
+    /// @notice Returns the label hash of a name.
+    /// @param _name The label (without the `.dmd` suffix)
+    /// @return The keccak256 label hash
     function getHashOfName(string memory _name) public pure returns (bytes32) {
         return NameUtils.labelHash(_name);
     }
 
+    /// @notice Validate the name against the current rules.
+    /// @param _name The label to validate (without the `.dmd` suffix)
+    /// @return True if the name is valid
     function valid(string memory _name) public pure returns (bool) {
         bytes memory nameBytes = bytes(_name);
         uint256 byteLength = nameBytes.length;
@@ -296,6 +349,10 @@ contract DMDRegistrarController is
         return true;
     }
 
+    /// @dev Configures forward and reverse records for `_user`'s new primary name,
+    /// deactivating any previous primary first.
+    /// @param _user The address activating the name
+    /// @param _name The label being activated (without the `.dmd` suffix)
     function _activate(address _user, bytes memory _name) private {
         bytes32 labelHash = NameUtils.labelHash(_name);
         bytes32 node = NameUtils.nodeHash(labelHash);
@@ -323,6 +380,7 @@ contract DMDRegistrarController is
         emit NameActivated(_user, labelHash, string(_name));
     }
 
+    /// @inheritdoc IDMDRegistrarController
     function resetRecordsOnTransfer(address _from, uint256 _tokenId) external override {
         if (msg.sender != address(diamondNames)) {
             revert Errors.Unauthorised();
@@ -335,11 +393,14 @@ contract DMDRegistrarController is
         }
     }
 
+    /// @dev Clears the forward and reverse records of `_owner` active name and removes
+    /// entries from controller's mapping. The registry node remains owned by the controller.
+    /// @param _owner The address whose active name is being cleared.
+    /// @param _name The label being deactivated (without the `.dmd` suffix).
     function _deactivateName(address _owner, bytes memory _name) private {
         bytes32 labelHash = NameUtils.labelHash(_name);
         bytes32 node = NameUtils.nodeHash(labelHash);
 
-        // The node is already owned by this controller (wrapper-style); just clear records.
         resolver.setAddr(node, address(0));
         registry.setResolver(node, address(0));
 
@@ -353,6 +414,10 @@ contract DMDRegistrarController is
         emit NameDeactivated(_owner, labelHash, string(_name));
     }
 
+    /// @dev Clears any live records of an expired name before it is re-minted, if it is
+    /// still recorded as someone's active name.
+    /// @param _labelHash The label hash of the expired name
+    /// @param _name The label of the expired name (without the `.dmd` suffix)
     function _resetExpiredName(bytes32 _labelHash, bytes memory _name) private {
         address previousOwner = namesReverse[_labelHash];
 
@@ -361,10 +426,14 @@ contract DMDRegistrarController is
         }
     }
 
+    /// @dev Get a fully-qualified name for label (with .dmd suffix).
+    /// @param _label The label bytes
+    /// @return The fully-qualified name (e.g. `alice.dmd`)
     function _fullName(bytes memory _label) private pure returns (string memory) {
         return string(abi.encodePacked(_label, DMD_TLD));
     }
 
+    /// @dev Reverts unless the controller currently owns the `.dmd` registry node.
     function _checkRegistrar() private view {
         if (registry.owner(NameUtils.DMD_NODE) != address(this)) {
             revert RegistrarInactive();

@@ -2,16 +2,12 @@
 pragma solidity 0.8.25;
 
 library TransferUtils {
-    /**
-     * @notice Thrown when a native token transfer fails.
-     */
+    /// @notice Thrown when a native token transfer fails.
     error TransferFailed(address recipient, uint256 amount);
 
-    /**
-     * @notice Transfers native token to a recipient.
-     * @param recipient Funds receiver address.
-     * @param amount The amount to transfer.
-     */
+    /// @notice Transfers native token to a recipient.
+    /// @param recipient Funds receiver address.
+    /// @param amount The amount to transfer.
     function transferNative(address recipient, uint256 amount) internal {
         // solhint-disable-next-line avoid-low-level-calls
         (bool success,) = recipient.call{ value: amount }("");
