@@ -16,6 +16,7 @@ import { IERC721 } from "../interface/IERC721.sol";
 import { IERC721Metadata } from "../interface/IERC721Metadata.sol";
 
 /**
+ * @notice Upgradeable ERC-721 base with payable transfer functions
  * @dev Implementation of https://eips.ethereum.org/EIPS/eip-721[ERC-721] Non-Fungible Token Standard, including
  * the Metadata extension, but not including the Enumerable extension, which is available separately as
  * {ERC721Enumerable}.
