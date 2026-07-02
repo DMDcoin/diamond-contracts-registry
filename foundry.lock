@@ -1,0 +1,38 @@
+{
+  "lib/diamond-contracts-core": {
+    "tag": {
+      "name": "v3",
+      "rev": "a121c2f26403134960095bc60a661e18cc3a0a5c"
+    }
+  },
+  "lib/forge-std": {
+    "tag": {
+      "name": "v1.16.1",
+      "rev": "620536fa5277db4e3fd46772d5cbc1ea0696fb43"
+    }
+  },
+  "lib/openzeppelin-contracts": {
+    "tag": {
+      "name": "v5.2.0",
+      "rev": "acd4ff74de833399287ed6b31b4debf6b2b35527"
+    }
+  },
+  "lib/openzeppelin-contracts-upgradeable": {
+    "tag": {
+      "name": "v5.2.0",
+      "rev": "3d5fa5c24c411112bab47bec25cfa9ad0af0e6e8"
+    }
+  },
+  "lib/openzeppelin-foundry-upgrades": {
+    "tag": {
+      "name": "v0.4.1",
+      "rev": "258e12e727bfe7f0ec30c51995d01ec88b82efc1"
+    }
+  },
+  "lib/solady": {
+    "tag": {
+      "name": "v0.1.26",
+      "rev": "acd959aa4bd04720d640bf4e6a5c71037510cc4b"
+    }
+  }
+}

@@ -1,8 +1,10 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity 0.8.18;
+// SPDX-License-Identifier: GPL-3.0-or-later
+pragma solidity 0.8.25;
 
 contract MockEtherReceiver {
     bool public allowReceive;
+
+    error ReceiveDisabled();
 
     constructor() {
         allowReceive = false;
@@ -10,7 +12,7 @@ contract MockEtherReceiver {
 
     receive() external payable {
         if (!allowReceive) {
-            revert();
+            revert ReceiveDisabled();
         }
     }
 
