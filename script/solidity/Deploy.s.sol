@@ -99,6 +99,7 @@ contract Deploy is Script {
 
         if (release) {
             registry.setOwner(ROOT_NODE, cfg.dao);
+            registry.setSubnodeOwner(ROOT_NODE, REVERSE_LABEL, cfg.dao);
 
             Ownable(address(names)).transferOwnership(cfg.dao);
             Ownable(address(controller)).transferOwnership(cfg.dao);

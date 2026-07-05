@@ -23,7 +23,7 @@ remappings = [
 
 ignored_warnings_from = ["lib/openzeppelin-foundry-upgrades"]
 
-no_match_coverage = "src/mocks/.*"
+no_match_coverage = "src/mocks/.*|script/*"
 
 [lint]
 lint_on_build = true
