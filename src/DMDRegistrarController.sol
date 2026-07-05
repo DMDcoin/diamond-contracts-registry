@@ -113,6 +113,11 @@ contract DMDRegistrarController is
         _;
     }
 
+    modifier notBlocked(string memory _name) {
+        _checkNameBlock(_name);
+        _;
+    }
+
     /// @notice Prevents initialization of the implementation contract.
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -196,17 +201,13 @@ contract DMDRegistrarController is
 
     /// @notice Registers a `.dmd` name, minting its token to the caller.
     /// @param _name The label to register (without the `.dmd` suffix)
-    function register(string calldata _name) external payable activeRegistrar {
+    function register(string calldata _name) external payable activeRegistrar notBlocked(_name) {
         if (msg.value != mintingFee) {
             revert InvalidMintingFee(mintingFee, msg.value);
         }
 
         if (!valid(_name)) {
             revert InvalidName();
-        }
-
-        if (isNameBlocked(_name)) {
-            revert NameBlocked(_name);
         }
 
         if (!available(_name)) {
@@ -237,13 +238,9 @@ contract DMDRegistrarController is
     /// @notice Activates a name as the caller's primary name, configures forward/reverse resolver records
     /// The first activation per address is free; subsequent ones cost a fee
     /// @param _name The name to activate (without the `.dmd` suffix)
-    function activate(string calldata _name) external payable activeRegistrar {
+    function activate(string calldata _name) external payable activeRegistrar notBlocked(_name) {
         bytes32 labelHash = NameUtils.labelHash(_name);
         uint256 tokenId = uint256(labelHash);
-
-        if (isNameBlocked(_name)) {
-            revert NameBlocked(_name);
-        }
 
         if (diamondNames.ownerOf(tokenId) != msg.sender) {
             revert NotNameOwner();
@@ -272,7 +269,7 @@ contract DMDRegistrarController is
 
     /// @notice Extends the registration term of an owned name.
     /// @param _name The label to renew (without the `.dmd` suffix)
-    function renew(string calldata _name) external {
+    function renew(string calldata _name) external activeRegistrar notBlocked(_name) {
         bytes32 labelHash = NameUtils.labelHash(_name);
         uint256 tokenId = uint256(labelHash);
 
@@ -437,6 +434,12 @@ contract DMDRegistrarController is
     function _checkRegistrar() private view {
         if (registry.owner(NameUtils.DMD_NODE) != address(this)) {
             revert RegistrarInactive();
+        }
+    }
+
+    function _checkNameBlock(string memory _name) private view {
+        if (isNameBlocked(_name)) {
+            revert NameBlocked(_name);
         }
     }
 

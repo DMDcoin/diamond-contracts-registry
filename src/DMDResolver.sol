@@ -7,6 +7,7 @@ import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol
 
 import { IAddrResolver } from "./interface/IAddrResolver.sol";
 import { IENS } from "./interface/IENS.sol";
+import { IExtendedResolver } from "./interface/IExtendedResolver.sol";
 import { INameResolver } from "./interface/INameResolver.sol";
 import { IResolver } from "./interface/IResolver.sol";
 
@@ -14,7 +15,7 @@ import { Errors } from "./lib/Errors.sol";
 
 /// @notice ENS-compatible resolver that stores the records of the DMD naming
 /// system for forward (node -> address) and reverse (node -> name) resolution.
-contract DMDResolver is Initializable, ERC165Upgradeable, IResolver {
+contract DMDResolver is Initializable, ERC165Upgradeable, IResolver, IExtendedResolver {
     IENS public registry;
 
     /// @notice Forward records: node namehash -> resolved address.
@@ -84,9 +85,23 @@ contract DMDResolver is Initializable, ERC165Upgradeable, IResolver {
         return names[node];
     }
 
-    /// @notice Returns whether the resolver implements a given interface.
-    /// @param interfaceId The ERC-165 interface identifier to check.
-    /// @return True if supported, false otherwise.
+    /// @notice Resolves an ABI-encoded resolver call for a DNS-encoded name (ENSIP-10).
+    /// @param data The ABI-encoded inner resolver call (e.g. `addr(bytes32)`).
+    /// @return The ABI-encoded result of the inner call.
+    function resolve(bytes calldata, bytes calldata data) external view override returns (bytes memory) {
+        (bool success, bytes memory result) = address(this).staticcall(data);
+
+        if (success) {
+            return result;
+        } else {
+            // Revert with the reason provided by the call
+            assembly ("memory-safe") {
+                revert(add(result, 0x20), mload(result))
+            }
+        }
+    }
+
+    /// @inheritdoc ERC165Upgradeable
     function supportsInterface(bytes4 interfaceId)
         public
         view
@@ -95,6 +110,6 @@ contract DMDResolver is Initializable, ERC165Upgradeable, IResolver {
         returns (bool)
     {
         return interfaceId == type(IAddrResolver).interfaceId || interfaceId == type(INameResolver).interfaceId
-            || super.supportsInterface(interfaceId);
+            || interfaceId == type(IExtendedResolver).interfaceId || super.supportsInterface(interfaceId);
     }
 }
