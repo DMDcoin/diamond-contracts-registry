@@ -21,4 +21,20 @@ contract MockByteUtils {
     function isHyphen(bytes1 _byte) public pure returns (bool) {
         return _byte.isHyphen();
     }
+
+    function isDot(bytes1 _byte) public pure returns (bool) {
+        return _byte.isDot();
+    }
+
+    function isAt(bytes1 _byte) public pure returns (bool) {
+        return _byte.isAt();
+    }
+
+    function isUnderscore(bytes1 _byte) public pure returns (bool) {
+        return _byte.isUnderscore();
+    }
+
+    function isPlus(bytes1 _byte) public pure returns (bool) {
+        return _byte.isPlus();
+    }
 }

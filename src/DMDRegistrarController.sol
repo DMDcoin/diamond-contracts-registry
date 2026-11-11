@@ -11,22 +11,29 @@ import { ValueGuards } from "diamond-contracts-core/lib/ValueGuards.sol";
 
 import { IDMDNames } from "./interface/IDMDNames.sol";
 import { IDMDRegistrarController } from "./interface/IDMDRegistrarController.sol";
+import { IDNSController } from "./interface/IDNSController.sol";
+import { DNSRecordKind } from "./interface/IDNSResolver.sol";
 import { IENS } from "./interface/IENS.sol";
+import { IEmailForwardingController } from "./interface/IEmailForwardingController.sol";
 import { IResolver } from "./interface/IResolver.sol";
 import { AddressUtils } from "./lib/AddressUtils.sol";
 import { ByteUtils } from "./lib/ByteUtils.sol";
+import { DNSUtils } from "./lib/DNSUtils.sol";
 import { Errors } from "./lib/Errors.sol";
 import { NameBlocklist } from "./lib/NameBlocklist.sol";
 import { NameUtils } from "./lib/NameUtils.sol";
 import { TransferUtils } from "./lib/TransferUtils.sol";
 
-/// @dev A registrar controller for registering, activating and renewing names.
+/// @dev A registrar controller for registering, activating and renewing names,
+/// managing DNS records and email forwarding of the active names.
 contract DMDRegistrarController is
     Initializable,
     OwnableUpgradeable,
     NameBlocklist,
     ValueGuards,
-    IDMDRegistrarController
+    IDMDRegistrarController,
+    IDNSController,
+    IEmailForwardingController
 {
     using ByteUtils for bytes1;
 
@@ -91,6 +98,16 @@ contract DMDRegistrarController is
     error InvalidActivationFee(uint256 want, uint256 sent);
     /// @notice Thrown when activating a name that is already the caller's primary.
     error AlreadyActive();
+    /// @notice Thrown when the name is not the caller's primary.
+    error NotActiveName();
+    /// @notice Thrown when setting an invalid IPv4 address.
+    error InvalidIPv4();
+    /// @notice Thrown when setting an invalid IPv6 address.
+    error InvalidIPv6();
+    /// @notice Thrown when setting an invalid CNAME hostname.
+    error InvalidCname();
+    /// @notice Thrown when setting an invalid email forwarding target.
+    error InvalidEmailForwardingTarget();
 
     /// @notice Emitted when a name is registered.
     event NameRegistered(address indexed node, bytes32 indexed labelHash, uint256 indexed expiration, string name);
@@ -294,6 +311,67 @@ contract DMDRegistrarController is
         emit NameRenewed(msg.sender, labelHash, expirationTimestamp, _name);
     }
 
+    /// @inheritdoc IDNSController
+    function setARecord(string calldata _label, bytes4 _ipv4) external activeRegistrar notBlocked(_label) {
+        bytes32 node = _checkActiveName(_label);
+
+        if (_ipv4 == bytes4(0)) {
+            revert InvalidIPv4();
+        }
+
+        resolver.setDNSRecord(node, DNSRecordKind.IPv4, abi.encodePacked(_ipv4));
+    }
+
+    /// @inheritdoc IDNSController
+    function setAAAARecord(string calldata _label, bytes16 _ipv6) external activeRegistrar notBlocked(_label) {
+        bytes32 node = _checkActiveName(_label);
+
+        if (_ipv6 == bytes16(0)) {
+            revert InvalidIPv6();
+        }
+
+        resolver.setDNSRecord(node, DNSRecordKind.IPv6, abi.encodePacked(_ipv6));
+    }
+
+    /// @inheritdoc IDNSController
+    function setCnameRecord(string calldata _label, bytes calldata _cname) external activeRegistrar notBlocked(_label) {
+        bytes32 node = _checkActiveName(_label);
+
+        if (!DNSUtils.isValidHostname(_cname)) {
+            revert InvalidCname();
+        }
+
+        resolver.setDNSRecord(node, DNSRecordKind.Cname, _cname);
+    }
+
+    /// @inheritdoc IDNSController
+    function clearDNSRecord(string calldata _label) external activeRegistrar notBlocked(_label) {
+        bytes32 node = _checkActiveName(_label);
+
+        resolver.setDNSRecord(node, DNSRecordKind.None, "");
+    }
+
+    /// @inheritdoc IEmailForwardingController
+    function setEmailForwarding(
+        string calldata _label,
+        bytes calldata _target
+    ) external activeRegistrar notBlocked(_label) {
+        bytes32 node = _checkActiveName(_label);
+
+        if (!DNSUtils.isValidEmail(_target)) {
+            revert InvalidEmailForwardingTarget();
+        }
+
+        resolver.setEmailForwardingTarget(node, _target);
+    }
+
+    /// @inheritdoc IEmailForwardingController
+    function clearEmailForwarding(string calldata _label) external activeRegistrar notBlocked(_label) {
+        bytes32 node = _checkActiveName(_label);
+
+        resolver.setEmailForwardingTarget(node, "");
+    }
+
     /// @notice Returns whether a name can be registered.
     /// A name is available only if it is not blocked and the token is free or expired.
     /// @param _name The label to check (without the `.dmd` suffix)
@@ -400,8 +478,8 @@ contract DMDRegistrarController is
         }
     }
 
-    /// @dev Clears the forward and reverse records of `_owner` active name and removes
-    /// entries from controller's mapping. The registry node remains owned by the controller.
+    /// @dev Clears the forward, reverse, DNS and email forwarding records of `_owner` active name
+    /// and removes entries from controller's mapping. The registry node remains owned by the controller.
     /// @param _owner The address whose active name is being cleared.
     /// @param _name The label being deactivated (without the `.dmd` suffix).
     function _deactivateName(address _owner, bytes memory _name) private {
@@ -409,6 +487,8 @@ contract DMDRegistrarController is
         bytes32 node = NameUtils.nodeHash(labelHash);
 
         resolver.setAddr(node, address(0));
+        resolver.setDNSRecord(node, DNSRecordKind.None, "");
+        resolver.setEmailForwardingTarget(node, "");
         registry.setResolver(node, address(0));
 
         bytes32 reverseNode = AddressUtils.reverseNode(_owner);
@@ -451,6 +531,28 @@ contract DMDRegistrarController is
         if (isNameBlocked(_name)) {
             revert NameBlocked(_name);
         }
+    }
+
+    /// @dev Reverts unless the name is caller's owned, unexpired and active name.
+    /// @param _label The label to check (without the `.dmd` suffix)
+    /// @return The namehash of `<label>.dmd`
+    function _checkActiveName(string calldata _label) private view returns (bytes32) {
+        bytes32 labelHash = NameUtils.labelHash(_label);
+        uint256 tokenId = uint256(labelHash);
+
+        if (diamondNames.ownerOf(tokenId) != msg.sender) {
+            revert NotNameOwner();
+        }
+
+        if (diamondNames.expired(tokenId)) {
+            revert NameExpired();
+        }
+
+        if (namesReverse[labelHash] != msg.sender) {
+            revert NotActiveName();
+        }
+
+        return NameUtils.nodeHash(labelHash);
     }
 
     function _mintingFeeAllowedValues() private pure returns (uint256[] memory) {

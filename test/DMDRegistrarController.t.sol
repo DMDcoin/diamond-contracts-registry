@@ -5,6 +5,7 @@ import { Test } from "forge-std/Test.sol";
 
 import { OwnableUpgradeable } from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import { Initializable } from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import { IERC721Errors } from "@openzeppelin/contracts/interfaces/draft-IERC6093.sol";
 
 import { Upgrades } from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
@@ -17,6 +18,8 @@ import { DMDRegistrarController } from "src/DMDRegistrarController.sol";
 import { DMDRegistry } from "src/DMDRegistry.sol";
 import { DMDResolver } from "src/DMDResolver.sol";
 import { IAddrResolver } from "src/interface/IAddrResolver.sol";
+import { DNSRecord, DNSRecordKind, IDNSResolver } from "src/interface/IDNSResolver.sol";
+import { IEmailForwardingResolver } from "src/interface/IEmailForwardingResolver.sol";
 import { INameResolver } from "src/interface/INameResolver.sol";
 import { AddressUtils } from "src/lib/AddressUtils.sol";
 import { Errors } from "src/lib/Errors.sol";
@@ -48,6 +51,11 @@ contract DMDRegistrarControllerTest is Test {
     bytes32 public constant REVERSE_NODE = keccak256(abi.encodePacked(ROOT_NODE, REVERSE_LABEL));
 
     uint256 public constant INITIAL_TRANSFER_FEE = 0.5 ether;
+
+    bytes4 public constant IPV4_ADDRESS = 0xc0000201; // 192.0.2.1
+    bytes16 public constant IPV6_ADDRESS = 0x20010db8000000000000000000000001; // 2001:db8::1
+    string public constant CNAME = "alice.example.com";
+    string public constant EMAIL_TARGET = "alice@example.com";
 
     address public owner;
     address public alice;
@@ -121,6 +129,30 @@ contract DMDRegistrarControllerTest is Test {
 
     function _reverseNodeOf(address addr) internal pure returns (bytes32) {
         return AddressUtils.reverseNode(addr);
+    }
+
+    function _setRecords(address user, string memory name) internal {
+        vm.prank(user);
+        registrar.setCnameRecord(name, bytes(CNAME));
+
+        vm.prank(user);
+        registrar.setEmailForwarding(name, bytes(EMAIL_TARGET));
+    }
+
+    function _assertRecordsSet(bytes32 node) internal view {
+        DNSRecord memory record = resolver.dnsRecord(node);
+
+        assertEq(uint8(record.kind), uint8(DNSRecordKind.Cname));
+        assertEq(record.value, bytes(CNAME));
+        assertEq(resolver.emailForwardingTarget(node), bytes(EMAIL_TARGET));
+    }
+
+    function _assertRecordsCleared(bytes32 node) internal view {
+        DNSRecord memory record = resolver.dnsRecord(node);
+
+        assertEq(uint8(record.kind), uint8(DNSRecordKind.None));
+        assertEq(record.value.length, 0);
+        assertEq(resolver.emailForwardingTarget(node).length, 0);
     }
 
     function _deployUninitializedController() internal returns (DMDRegistrarController) {
@@ -607,6 +639,482 @@ contract DMDRegistrarControllerTest is Test {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, alice));
         registrar.setMintingFee(mintingFee * 2);
+    }
+
+    function test_SetARecord() public {
+        _registerName(alice, "alice");
+        bytes32 node = _nodeOf("alice");
+
+        vm.expectEmit(true, true, false, true, address(resolver));
+        emit IDNSResolver.DNSRecordChanged(node, DNSRecordKind.IPv4, abi.encodePacked(IPV4_ADDRESS));
+
+        vm.prank(alice);
+        registrar.setARecord("alice", IPV4_ADDRESS);
+
+        DNSRecord memory record = resolver.dnsRecord(node);
+        assertEq(uint8(record.kind), uint8(DNSRecordKind.IPv4));
+        assertEq(record.value, abi.encodePacked(IPV4_ADDRESS));
+    }
+
+    function test_SetARecord_ZeroAddress_Reverts() public {
+        _registerName(alice, "alice");
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.InvalidIPv4.selector);
+        registrar.setARecord("alice", bytes4(0));
+    }
+
+    function test_SetAAAARecord() public {
+        _registerName(alice, "alice");
+        bytes32 node = _nodeOf("alice");
+
+        vm.expectEmit(true, true, false, true, address(resolver));
+        emit IDNSResolver.DNSRecordChanged(node, DNSRecordKind.IPv6, abi.encodePacked(IPV6_ADDRESS));
+
+        vm.prank(alice);
+        registrar.setAAAARecord("alice", IPV6_ADDRESS);
+
+        DNSRecord memory record = resolver.dnsRecord(node);
+        assertEq(uint8(record.kind), uint8(DNSRecordKind.IPv6));
+        assertEq(record.value, abi.encodePacked(IPV6_ADDRESS));
+    }
+
+    function test_SetAAAARecord_ZeroAddress_Reverts() public {
+        _registerName(alice, "alice");
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.InvalidIPv6.selector);
+        registrar.setAAAARecord("alice", bytes16(0));
+    }
+
+    function test_SetCnameRecord() public {
+        _registerName(alice, "alice");
+        bytes32 node = _nodeOf("alice");
+
+        vm.expectEmit(true, true, false, true, address(resolver));
+        emit IDNSResolver.DNSRecordChanged(node, DNSRecordKind.Cname, bytes(CNAME));
+
+        vm.prank(alice);
+        registrar.setCnameRecord("alice", bytes(CNAME));
+
+        DNSRecord memory record = resolver.dnsRecord(node);
+        assertEq(uint8(record.kind), uint8(DNSRecordKind.Cname));
+        assertEq(record.value, bytes(CNAME));
+    }
+
+    function test_SetCnameRecord_InvalidHostname_Reverts() public {
+        _registerName(alice, "alice");
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.InvalidCname.selector);
+        registrar.setCnameRecord("alice", bytes("1.2.3.4"));
+    }
+
+    function test_SetDNSRecord_ReplacesPreviousRecord() public {
+        _registerName(alice, "alice");
+        bytes32 node = _nodeOf("alice");
+
+        vm.prank(alice);
+        registrar.setCnameRecord("alice", bytes("very-long-hostname-of-the-website.example.com"));
+
+        vm.prank(alice);
+        registrar.setARecord("alice", IPV4_ADDRESS);
+
+        DNSRecord memory record = resolver.dnsRecord(node);
+        assertEq(uint8(record.kind), uint8(DNSRecordKind.IPv4));
+        assertEq(record.value, abi.encodePacked(IPV4_ADDRESS));
+    }
+
+    function test_ClearDNSRecord() public {
+        _registerName(alice, "alice");
+        bytes32 node = _nodeOf("alice");
+
+        vm.prank(alice);
+        registrar.setARecord("alice", IPV4_ADDRESS);
+
+        vm.expectEmit(true, true, false, true, address(resolver));
+        emit IDNSResolver.DNSRecordChanged(node, DNSRecordKind.None, "");
+
+        vm.prank(alice);
+        registrar.clearDNSRecord("alice");
+
+        DNSRecord memory record = resolver.dnsRecord(node);
+        assertEq(uint8(record.kind), uint8(DNSRecordKind.None));
+        assertEq(record.value.length, 0);
+    }
+
+    function test_SetEmailForwarding() public {
+        _registerName(alice, "alice");
+        bytes32 node = _nodeOf("alice");
+
+        vm.expectEmit(true, false, false, true, address(resolver));
+        emit IEmailForwardingResolver.EmailForwardingTargetChanged(node, bytes(EMAIL_TARGET));
+
+        vm.prank(alice);
+        registrar.setEmailForwarding("alice", bytes(EMAIL_TARGET));
+
+        assertEq(resolver.emailForwardingTarget(node), bytes(EMAIL_TARGET));
+    }
+
+    function test_SetEmailForwarding_InvalidTarget_Reverts() public {
+        _registerName(alice, "alice");
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.InvalidEmailForwardingTarget.selector);
+        registrar.setEmailForwarding("alice", bytes("alice.example.com"));
+    }
+
+    function test_ClearEmailForwarding() public {
+        _registerName(alice, "alice");
+        bytes32 node = _nodeOf("alice");
+
+        vm.prank(alice);
+        registrar.setEmailForwarding("alice", bytes(EMAIL_TARGET));
+
+        vm.expectEmit(true, false, false, true, address(resolver));
+        emit IEmailForwardingResolver.EmailForwardingTargetChanged(node, "");
+
+        vm.prank(alice);
+        registrar.clearEmailForwarding("alice");
+
+        assertEq(resolver.emailForwardingTarget(node).length, 0);
+    }
+
+    function test_SetRecords_NotRegisteredName_Reverts() public {
+        uint256 tokenId = uint256(registrar.getHashOfName("alice"));
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(IERC721Errors.ERC721NonexistentToken.selector, tokenId));
+        registrar.setARecord("alice", IPV4_ADDRESS);
+    }
+
+    function test_SetRecords_NotNameOwner_Reverts() public {
+        _registerName(alice, "alice");
+
+        vm.prank(bob);
+        vm.expectRevert(DMDRegistrarController.NotNameOwner.selector);
+        registrar.setARecord("alice", IPV4_ADDRESS);
+
+        vm.prank(bob);
+        vm.expectRevert(DMDRegistrarController.NotNameOwner.selector);
+        registrar.setAAAARecord("alice", IPV6_ADDRESS);
+
+        vm.prank(bob);
+        vm.expectRevert(DMDRegistrarController.NotNameOwner.selector);
+        registrar.setCnameRecord("alice", bytes(CNAME));
+
+        vm.prank(bob);
+        vm.expectRevert(DMDRegistrarController.NotNameOwner.selector);
+        registrar.clearDNSRecord("alice");
+
+        vm.prank(bob);
+        vm.expectRevert(DMDRegistrarController.NotNameOwner.selector);
+        registrar.setEmailForwarding("alice", bytes(EMAIL_TARGET));
+
+        vm.prank(bob);
+        vm.expectRevert(DMDRegistrarController.NotNameOwner.selector);
+        registrar.clearEmailForwarding("alice");
+    }
+
+    function test_SetRecords_InactiveName_Reverts() public {
+        _registerName(alice, "alice");
+        _registerName(alice, "alice2");
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.NotActiveName.selector);
+        registrar.setARecord("alice2", IPV4_ADDRESS);
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.NotActiveName.selector);
+        registrar.setAAAARecord("alice2", IPV6_ADDRESS);
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.NotActiveName.selector);
+        registrar.setCnameRecord("alice2", bytes(CNAME));
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.NotActiveName.selector);
+        registrar.clearDNSRecord("alice2");
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.NotActiveName.selector);
+        registrar.setEmailForwarding("alice2", bytes(EMAIL_TARGET));
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.NotActiveName.selector);
+        registrar.clearEmailForwarding("alice2");
+    }
+
+    function test_SetRecords_ExpiredName_Reverts() public {
+        _registerName(alice, "alice");
+        _expireName("alice");
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.NameExpired.selector);
+        registrar.setARecord("alice", IPV4_ADDRESS);
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.NameExpired.selector);
+        registrar.setAAAARecord("alice", IPV6_ADDRESS);
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.NameExpired.selector);
+        registrar.setCnameRecord("alice", bytes(CNAME));
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.NameExpired.selector);
+        registrar.clearDNSRecord("alice");
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.NameExpired.selector);
+        registrar.setEmailForwarding("alice", bytes(EMAIL_TARGET));
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.NameExpired.selector);
+        registrar.clearEmailForwarding("alice");
+    }
+
+    function test_SetRecords_BlockedName_Reverts() public {
+        string memory name = "alice";
+        _registerName(alice, name);
+
+        vm.prank(owner);
+        registrar.setNameBlocked(name, true);
+
+        bytes memory err = abi.encodeWithSelector(NameBlocklist.NameBlocked.selector, name);
+
+        vm.prank(alice);
+        vm.expectRevert(err);
+        registrar.setARecord(name, IPV4_ADDRESS);
+
+        vm.prank(alice);
+        vm.expectRevert(err);
+        registrar.setAAAARecord(name, IPV6_ADDRESS);
+
+        vm.prank(alice);
+        vm.expectRevert(err);
+        registrar.setCnameRecord(name, bytes(CNAME));
+
+        vm.prank(alice);
+        vm.expectRevert(err);
+        registrar.clearDNSRecord(name);
+
+        vm.prank(alice);
+        vm.expectRevert(err);
+        registrar.setEmailForwarding(name, bytes(EMAIL_TARGET));
+
+        vm.prank(alice);
+        vm.expectRevert(err);
+        registrar.clearEmailForwarding(name);
+    }
+
+    function test_SetRecords_RegistrarInactive_Reverts() public {
+        _registerName(alice, "alice");
+
+        vm.prank(owner);
+        registry.setSubnodeOwner(ROOT_NODE, DMD_LABEL, owner);
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.RegistrarInactive.selector);
+        registrar.setARecord("alice", IPV4_ADDRESS);
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.RegistrarInactive.selector);
+        registrar.setAAAARecord("alice", IPV6_ADDRESS);
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.RegistrarInactive.selector);
+        registrar.setCnameRecord("alice", bytes(CNAME));
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.RegistrarInactive.selector);
+        registrar.clearDNSRecord("alice");
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.RegistrarInactive.selector);
+        registrar.setEmailForwarding("alice", bytes(EMAIL_TARGET));
+
+        vm.prank(alice);
+        vm.expectRevert(DMDRegistrarController.RegistrarInactive.selector);
+        registrar.clearEmailForwarding("alice");
+    }
+
+    function test_Activate_SwitchPrimary_ClearsRecords() public {
+        _registerName(alice, "alice");
+        _registerName(alice, "alice2");
+        _setRecords(alice, "alice");
+
+        bytes32 node = _nodeOf("alice");
+        _assertRecordsSet(node);
+
+        uint256 activationFee = registrar.getActivationFee(alice);
+        vm.deal(alice, activationFee);
+
+        vm.expectEmit(true, true, false, true, address(resolver));
+        emit IDNSResolver.DNSRecordChanged(node, DNSRecordKind.None, "");
+        vm.expectEmit(true, false, false, true, address(resolver));
+        emit IEmailForwardingResolver.EmailForwardingTargetChanged(node, "");
+
+        vm.prank(alice);
+        registrar.activate{ value: activationFee }("alice2");
+
+        _assertRecordsCleared(node);
+        _assertRecordsCleared(_nodeOf("alice2"));
+    }
+
+    function test_Transfer_ClearsRecords() public {
+        _registerName(alice, "alice");
+        _setRecords(alice, "alice");
+
+        bytes32 node = _nodeOf("alice");
+        uint256 tokenId = uint256(registrar.getHashOfName("alice"));
+        uint256 fee = diamondNames.transferFee();
+
+        vm.deal(alice, fee);
+
+        vm.expectEmit(true, true, false, true, address(resolver));
+        emit IDNSResolver.DNSRecordChanged(node, DNSRecordKind.None, "");
+        vm.expectEmit(true, false, false, true, address(resolver));
+        emit IEmailForwardingResolver.EmailForwardingTargetChanged(node, "");
+
+        vm.prank(alice);
+        diamondNames.transferFrom{ value: fee }(alice, bob, tokenId);
+
+        _assertRecordsCleared(node);
+
+        vm.prank(bob);
+        registrar.activate("alice");
+
+        _assertRecordsCleared(node);
+    }
+
+    function test_Transfer_InactiveName_DoesNotClearActiveNameRecords() public {
+        _registerName(alice, "alice");
+        _registerName(alice, "alice2");
+        _setRecords(alice, "alice");
+
+        uint256 inactiveTokenId = uint256(registrar.getHashOfName("alice2"));
+        uint256 fee = diamondNames.transferFee();
+
+        vm.deal(alice, fee);
+        vm.prank(alice);
+        diamondNames.transferFrom{ value: fee }(alice, bob, inactiveTokenId);
+
+        _assertRecordsSet(_nodeOf("alice"));
+    }
+
+    function test_Register_ExpiredActiveName_ClearsRecords() public {
+        _registerName(alice, "alice");
+        _setRecords(alice, "alice");
+
+        bytes32 node = _nodeOf("alice");
+        _assertRecordsSet(node);
+
+        _expireName("alice");
+
+        vm.expectEmit(true, true, false, true, address(resolver));
+        emit IDNSResolver.DNSRecordChanged(node, DNSRecordKind.None, "");
+        vm.expectEmit(true, false, false, true, address(resolver));
+        emit IEmailForwardingResolver.EmailForwardingTargetChanged(node, "");
+
+        _registerName(bob, "alice");
+
+        _assertRecordsCleared(node);
+        assertEq(resolver.addr(node), bob);
+    }
+
+    function test_ModerateName_ClearsRecords() public {
+        string memory name = "alice";
+        _registerName(alice, name);
+        _setRecords(alice, name);
+
+        bytes32 node = _nodeOf(name);
+        _assertRecordsSet(node);
+
+        vm.prank(owner);
+        registrar.moderateName(alice, name, "Scam / phishing impersonation", "phishing website");
+
+        _assertRecordsCleared(node);
+    }
+
+    function test_Resolver_SetDNSRecord_Unauthorised_Reverts() public {
+        _registerName(alice, "alice");
+        bytes32 node = _nodeOf("alice");
+
+        vm.prank(alice);
+        vm.expectRevert(Errors.Unauthorised.selector);
+        resolver.setDNSRecord(node, DNSRecordKind.IPv4, abi.encodePacked(IPV4_ADDRESS));
+    }
+
+    function test_Resolver_SetEmailForwardingTarget_Unauthorised_Reverts() public {
+        _registerName(alice, "alice");
+        bytes32 node = _nodeOf("alice");
+
+        vm.prank(alice);
+        vm.expectRevert(Errors.Unauthorised.selector);
+        resolver.setEmailForwardingTarget(node, bytes(EMAIL_TARGET));
+    }
+
+    function test_Resolver_SetDNSRecord_InvalidRecord_Reverts() public {
+        _registerName(alice, "alice");
+        bytes32 node = _nodeOf("alice");
+
+        vm.prank(address(registrar));
+        vm.expectRevert(abi.encodeWithSelector(DMDResolver.InvalidDNSRecord.selector, DNSRecordKind.IPv4));
+        resolver.setDNSRecord(node, DNSRecordKind.IPv4, abi.encodePacked(IPV6_ADDRESS));
+
+        vm.prank(address(registrar));
+        vm.expectRevert(abi.encodeWithSelector(DMDResolver.InvalidDNSRecord.selector, DNSRecordKind.IPv6));
+        resolver.setDNSRecord(node, DNSRecordKind.IPv6, abi.encodePacked(IPV4_ADDRESS));
+
+        vm.prank(address(registrar));
+        vm.expectRevert(abi.encodeWithSelector(DMDResolver.InvalidDNSRecord.selector, DNSRecordKind.Cname));
+        resolver.setDNSRecord(node, DNSRecordKind.Cname, "");
+
+        vm.prank(address(registrar));
+        vm.expectRevert(abi.encodeWithSelector(DMDResolver.InvalidDNSRecord.selector, DNSRecordKind.None));
+        resolver.setDNSRecord(node, DNSRecordKind.None, bytes(CNAME));
+    }
+
+    function test_Resolver_SupportsDNSInterface() public view {
+        assertTrue(resolver.supportsInterface(type(IDNSResolver).interfaceId));
+    }
+
+    function test_Resolver_SupportsEmailForwardingInterface() public view {
+        assertTrue(resolver.supportsInterface(type(IEmailForwardingResolver).interfaceId));
+    }
+
+    function test_Resolver_Resolve_DNSRecord() public {
+        _registerName(alice, "alice");
+        _setRecords(alice, "alice");
+
+        bytes32 node = _nodeOf("alice");
+
+        bytes memory result = resolver.resolve("", abi.encodeCall(IDNSResolver.dnsRecord, (node)));
+        DNSRecord memory record = abi.decode(result, (DNSRecord));
+
+        assertEq(uint8(record.kind), uint8(DNSRecordKind.Cname));
+        assertEq(record.value, bytes(CNAME));
+    }
+
+    function test_Resolver_Resolve_EmailForwardingTarget() public {
+        _registerName(alice, "alice");
+        _setRecords(alice, "alice");
+
+        bytes32 node = _nodeOf("alice");
+
+        bytes memory result =
+            resolver.resolve("", abi.encodeCall(IEmailForwardingResolver.emailForwardingTarget, (node)));
+
+        assertEq(abi.decode(result, (bytes)), bytes(EMAIL_TARGET));
+    }
+
+    function test_Resolver_Resolve_UnsupportedFunc_Reverts() public {
+        bytes32 node = _nodeOf("alice");
+        bytes4 selector = DMDResolver.setAddr.selector;
+
+        vm.expectRevert(abi.encodeWithSelector(DMDResolver.UnsupportedResolverFunc.selector, selector));
+        resolver.resolve("", abi.encodeCall(DMDResolver.setAddr, (node, alice)));
     }
 
     function fixtureNames() public pure returns (NameValidationTestCase[] memory) {

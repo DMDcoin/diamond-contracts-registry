@@ -26,4 +26,32 @@ library ByteUtils {
     function isHyphen(bytes1 _byte) internal pure returns (bool) {
         return _byte == 0x2d; // '-'
     }
+
+    /// @notice Check whether the byte is a dot (.).
+    /// @param _byte The byte to test.
+    /// @return True if the byte is `.`.
+    function isDot(bytes1 _byte) internal pure returns (bool) {
+        return _byte == 0x2e; // '.'
+    }
+
+    /// @notice Check whether the byte is an at sign (@).
+    /// @param _byte The byte to test.
+    /// @return True if the byte is `@`.
+    function isAt(bytes1 _byte) internal pure returns (bool) {
+        return _byte == 0x40; // '@'
+    }
+
+    /// @notice Check whether the byte is an underscore (_).
+    /// @param _byte The byte to test.
+    /// @return True if the byte is `_`.
+    function isUnderscore(bytes1 _byte) internal pure returns (bool) {
+        return _byte == 0x5f; // '_'
+    }
+
+    /// @notice Check whether the byte is a plus sign (+).
+    /// @param _byte The byte to test.
+    /// @return True if the byte is `+`.
+    function isPlus(bytes1 _byte) internal pure returns (bool) {
+        return _byte == 0x2b; // '+'
+    }
 }

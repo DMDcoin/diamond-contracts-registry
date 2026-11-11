@@ -6,7 +6,9 @@ import { ERC165Upgradeable } from "@openzeppelin/contracts-upgradeable/utils/int
 import { IERC165 } from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
 import { IAddrResolver } from "./interface/IAddrResolver.sol";
+import { DNSRecord, DNSRecordKind, IDNSResolver } from "./interface/IDNSResolver.sol";
 import { IENS } from "./interface/IENS.sol";
+import { IEmailForwardingResolver } from "./interface/IEmailForwardingResolver.sol";
 import { IExtendedResolver } from "./interface/IExtendedResolver.sol";
 import { INameResolver } from "./interface/INameResolver.sol";
 import { IResolver } from "./interface/IResolver.sol";
@@ -14,7 +16,8 @@ import { IResolver } from "./interface/IResolver.sol";
 import { Errors } from "./lib/Errors.sol";
 
 /// @notice ENS-compatible resolver that stores the records of the DMD naming
-/// system for forward (node -> address) and reverse (node -> name) resolution.
+/// system for forward (node -> address) and reverse (node -> name) resolution,
+/// DNS records and email forwarding targets.
 contract DMDResolver is Initializable, ERC165Upgradeable, IResolver, IExtendedResolver {
     IENS public registry;
 
@@ -24,8 +27,17 @@ contract DMDResolver is Initializable, ERC165Upgradeable, IResolver, IExtendedRe
     /// @notice Reverse records: node namehash -> human-readable name.
     mapping(bytes32 => string) public names;
 
+    /// @notice DNS records: node namehash -> DNS record.
+    mapping(bytes32 => DNSRecord) public dnsRecords;
+
+    /// @notice Email forwarding records: node namehash -> email address.
+    mapping(bytes32 => bytes) public emailForwardingTargets;
+
     /// @notice Thrown when `resolve` is called with an unsupported selector.
     error UnsupportedResolverFunc(bytes4 selector);
+
+    /// @notice Thrown when the DNS record value does not match the record kind.
+    error InvalidDNSRecord(DNSRecordKind kind);
 
     /// @dev Restricts a write to the owner of `node` or one of its approved operators
     /// @param node The node whose record is being written.
@@ -74,6 +86,29 @@ contract DMDResolver is Initializable, ERC165Upgradeable, IResolver, IExtendedRe
         emit NameChanged(node, newName);
     }
 
+    /// @notice Sets the DNS record for a node.
+    /// @param node The node to update
+    /// @param kind The kind of the record, `None` clears the record
+    /// @param value The record value, must be empty for `None` kind
+    function setDNSRecord(bytes32 node, DNSRecordKind kind, bytes calldata value) external authorised(node) {
+        if (!_validDNSRecord(kind, value)) {
+            revert InvalidDNSRecord(kind);
+        }
+
+        dnsRecords[node] = DNSRecord({ kind: kind, value: value });
+
+        emit DNSRecordChanged(node, kind, value);
+    }
+
+    /// @notice Sets the email forwarding target for a node.
+    /// @param node The node to update
+    /// @param target The email address to forward emails to, empty bytes clears the target
+    function setEmailForwardingTarget(bytes32 node, bytes calldata target) external authorised(node) {
+        emailForwardingTargets[node] = target;
+
+        emit EmailForwardingTargetChanged(node, target);
+    }
+
     /// @notice Returns the address a node resolves to.
     /// @param node The node to query
     /// @return The resolved address, address(0) otherwise
@@ -88,12 +123,30 @@ contract DMDResolver is Initializable, ERC165Upgradeable, IResolver, IExtendedRe
         return names[node];
     }
 
+    /// @notice Returns the DNS record of a node.
+    /// @param node The node to query
+    /// @return The DNS record, record of `None` kind otherwise
+    function dnsRecord(bytes32 node) external view override returns (DNSRecord memory) {
+        return dnsRecords[node];
+    }
+
+    /// @notice Returns the email forwarding target of a node.
+    /// @param node The node to query
+    /// @return The email address, empty bytes otherwise
+    function emailForwardingTarget(bytes32 node) external view override returns (bytes memory) {
+        return emailForwardingTargets[node];
+    }
+
     /// @notice Resolves an ABI-encoded resolver call for a DNS-encoded name (ENSIP-10).
     /// @param data The ABI-encoded inner resolver call (e.g. `addr(bytes32)`).
     /// @return The ABI-encoded result of the inner call.
     function resolve(bytes calldata, bytes calldata data) external view override returns (bytes memory) {
         bytes4 selector = bytes4(data);
-        if (selector != IAddrResolver.addr.selector && selector != INameResolver.name.selector) {
+        if (
+            selector != IAddrResolver.addr.selector && selector != INameResolver.name.selector
+                && selector != IDNSResolver.dnsRecord.selector
+                && selector != IEmailForwardingResolver.emailForwardingTarget.selector
+        ) {
             revert UnsupportedResolverFunc(selector);
         }
 
@@ -123,6 +176,28 @@ contract DMDResolver is Initializable, ERC165Upgradeable, IResolver, IExtendedRe
         returns (bool)
     {
         return interfaceId == type(IAddrResolver).interfaceId || interfaceId == type(INameResolver).interfaceId
+            || interfaceId == type(IDNSResolver).interfaceId
+            || interfaceId == type(IEmailForwardingResolver).interfaceId
             || interfaceId == type(IExtendedResolver).interfaceId || super.supportsInterface(interfaceId);
+    }
+
+    /// @dev Checks that the record value length matches the record kind.
+    /// @param kind The kind of the record
+    /// @param value The record value
+    /// @return True if the record is valid
+    function _validDNSRecord(DNSRecordKind kind, bytes calldata value) private pure returns (bool) {
+        if (kind == DNSRecordKind.IPv4) {
+            return value.length == 4;
+        }
+
+        if (kind == DNSRecordKind.IPv6) {
+            return value.length == 16;
+        }
+
+        if (kind == DNSRecordKind.Cname) {
+            return value.length != 0;
+        }
+
+        return value.length == 0;
     }
 }
